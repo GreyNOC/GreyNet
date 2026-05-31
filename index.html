@@ -603,6 +603,141 @@
     paint-order: stroke; stroke: var(--bg-0); stroke-width: 3; }
   @keyframes space-link-pulse { to { stroke-dashoffset: -26; } }
 
+  /* === DEEP SPACE VIEW === */
+  #canvas.deepspace-mode #grid-bg,
+  #canvas.deepspace-mode #worldmap-layer,
+  #canvas.deepspace-mode #live-layer,
+  #canvas.deepspace-mode #zones-layer,
+  #canvas.deepspace-mode #links-layer,
+  #canvas.deepspace-mode #devices-layer,
+  #canvas.deepspace-mode #sites-layer,
+  #canvas.deepspace-mode #sitelinks-layer,
+  #canvas.deepspace-mode #citymap-layer,
+  #canvas.deepspace-mode #endpoints-layer,
+  #canvas.deepspace-mode #citylinks-layer,
+  #canvas.deepspace-mode #spacemap-layer,
+  #canvas.deepspace-mode #spacelinks-layer,
+  #canvas.deepspace-mode #spaceassets-layer { display: none; }
+  #canvas:not(.deepspace-mode) #deepspace-layer,
+  #canvas:not(.deepspace-mode) #deepspace-link-layer { display: none; }
+  body.deepspace-mode .palette { display: none; }
+  body.deepspace-mode #app { grid-template-columns: 0 1fr 380px; }
+
+  .ds-bg { fill: url(#space-bg-gradient); }
+  .ds-sun-corona { fill: url(#sun-corona); pointer-events: none; }
+  .ds-sun { fill: url(#sun-gradient); stroke: #ffd76a; stroke-width: 0.6; stroke-opacity: 0.4;
+    filter: url(#soft-glow); }
+  .ds-orbit { fill: none; stroke: rgba(133,180,235,0.16); stroke-width: 0.8;
+    stroke-dasharray: 4 8; pointer-events: none; }
+  .ds-orbit-label { fill: rgba(140,170,200,0.50); font-size: 9px;
+    font-family: "SF Mono", Menlo, monospace; pointer-events: none; }
+  .ds-planet { cursor: pointer; }
+  .ds-planet-body { stroke: rgba(255,255,255,0.18); stroke-width: 0.6; filter: url(#planet-shade); }
+  .ds-planet.target .ds-planet-body { stroke: var(--select); stroke-width: 2.5;
+    filter: drop-shadow(0 0 6px var(--select)); }
+  .ds-planet .ds-planet-label { fill: var(--text); font-size: 11px; font-weight: 600;
+    text-anchor: middle; pointer-events: none; user-select: none;
+    paint-order: stroke; stroke: var(--bg-0); stroke-width: 3.5; }
+  .ds-planet .ds-planet-meta { fill: var(--text-faint); font-size: 8.5px;
+    text-anchor: middle; pointer-events: none; user-select: none;
+    font-family: "SF Mono", Menlo, monospace;
+    paint-order: stroke; stroke: var(--bg-0); stroke-width: 2.5; }
+  .ds-planet:hover .ds-planet-body { stroke: var(--accent); stroke-width: 1.8; }
+
+  .ds-source { cursor: pointer; }
+  .ds-source-ring { fill: var(--bg-0); stroke: var(--accent); stroke-width: 2; }
+  .ds-source-pulse { fill: none; stroke: var(--accent); stroke-width: 1.5;
+    transform-box: fill-box; transform-origin: center;
+    animation: ds-source-pulse 2.4s ease-out infinite; pointer-events: none; }
+  @keyframes ds-source-pulse {
+    0%   { transform: scale(1);   opacity: 0.7; }
+    100% { transform: scale(2.6); opacity: 0;   }
+  }
+  .ds-source-label { fill: var(--text); font-size: 11px; font-weight: 600;
+    text-anchor: middle; pointer-events: none;
+    paint-order: stroke; stroke: var(--bg-0); stroke-width: 3.5; }
+
+  .ds-link { fill: none; pointer-events: none; filter: url(#ds-link-glow); }
+  .ds-link.ok       { stroke: var(--ok);     stroke-width: 1.4; opacity: 0.9; }
+  .ds-link.marginal { stroke: var(--warn);   stroke-width: 1.2; opacity: 0.85; stroke-dasharray: 4 4; }
+  .ds-link.fail     { stroke: var(--err);    stroke-width: 1.0; opacity: 0.75; stroke-dasharray: 2 6; }
+
+  /* Light-speed packet — duration is set inline per current delay. */
+  .ds-packet { fill: #fff; r: 2.4; opacity: 0.95; filter: url(#ds-link-glow);
+    pointer-events: none; }
+
+  .ds-readout-text { fill: var(--text); font-family: "SF Mono", Menlo, monospace;
+    font-size: 11px; pointer-events: none; }
+  .ds-readout-dim { fill: var(--text-faint); font-size: 9.5px;
+    font-family: "SF Mono", Menlo, monospace; pointer-events: none; }
+  .ds-verdict-bg { fill: var(--bg-1); stroke-width: 1.5; }
+
+  /* === LINK BUDGET STUDIO PANEL === */
+  body.deepspace-mode .properties { padding: 0; }
+  .lbs { display: flex; flex-direction: column; height: 100%; overflow: hidden; }
+  .lbs-head { padding: 10px 14px; border-bottom: 1px solid var(--border);
+    background: var(--bg-1);
+    display: flex; align-items: center; gap: 8px; }
+  .lbs-head .lbs-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--text-dim); }
+  .lbs-head .lbs-title b { color: var(--accent); font-weight: 600; }
+  .lbs-verdict { margin-left: auto; font-size: 10px; font-weight: 700;
+    letter-spacing: 0.7px; text-transform: uppercase;
+    padding: 3px 8px; border-radius: 3px; color: var(--bg-0); }
+  .lbs-verdict.ok   { background: var(--ok); }
+  .lbs-verdict.warn { background: var(--warn); }
+  .lbs-verdict.err  { background: var(--err); }
+
+  .lbs-body { flex: 1; overflow-y: auto; padding: 0; }
+  .lbs-section { border-bottom: 1px solid var(--border); padding: 10px 14px; }
+  .lbs-section h4 { margin: 0 0 8px 0; font-size: 10px; text-transform: uppercase;
+    letter-spacing: 1px; color: var(--text-dim); font-weight: 600; }
+  .lbs-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+  .lbs-row label { font-size: 11px; color: var(--text-dim); flex: 1; }
+  .lbs-row .val { font-family: "SF Mono", Menlo, monospace; font-size: 11px;
+    color: var(--text); min-width: 78px; text-align: right; }
+  .lbs-row .unit { color: var(--text-faint); font-size: 10px; margin-left: 2px; }
+  .lbs-row input[type="range"] { flex: 2; height: 18px; accent-color: var(--accent); margin: 0; }
+  .lbs-row select { background: var(--bg-2); border: 1px solid var(--border);
+    color: var(--text); font-size: 11px; padding: 3px 6px; border-radius: 3px; flex: 2; }
+  .lbs-row.full label { flex: 1; }
+  .lbs-row.full select { flex: 1.6; }
+
+  .lbs-readout { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px;
+    font-family: "SF Mono", Menlo, monospace; font-size: 11px; }
+  .lbs-readout .k { color: var(--text-dim); }
+  .lbs-readout .v { color: var(--text); text-align: right; }
+  .lbs-readout .v.good { color: var(--ok); }
+  .lbs-readout .v.warn { color: var(--warn); }
+  .lbs-readout .v.bad  { color: var(--err); }
+  .lbs-readout .sub { color: var(--text-faint); font-size: 9.5px; }
+
+  /* Waterfall: dB-budget bars */
+  .lbs-waterfall { margin-top: 6px; }
+  .lbs-bar { display: grid; grid-template-columns: 70px 1fr 64px;
+    gap: 8px; align-items: center; font-size: 10.5px; margin-bottom: 3px; }
+  .lbs-bar .name { color: var(--text-dim); }
+  .lbs-bar .v { font-family: "SF Mono", Menlo, monospace;
+    color: var(--text); text-align: right; }
+  .lbs-bar .track { position: relative; height: 8px; background: var(--bg-2);
+    border-radius: 2px; overflow: hidden; }
+  .lbs-bar .fill { position: absolute; top: 0; bottom: 0; left: 50%;
+    background: var(--accent); border-radius: 2px; }
+  .lbs-bar.gain .fill { background: var(--ok); }
+  .lbs-bar.loss .fill { background: var(--err); }
+  .lbs-bar.note .fill { background: var(--text-dim); }
+
+  .lbs-presets { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
+  .lbs-presets button { background: var(--bg-2); border: 1px solid var(--border);
+    color: var(--text-dim); padding: 4px 9px; border-radius: 11px;
+    font-size: 10.5px; cursor: pointer; }
+  .lbs-presets button:hover { border-color: var(--accent); color: var(--accent); }
+
+  .lbs-explain { font-size: 10.5px; color: var(--text-faint); line-height: 1.45;
+    padding: 8px 12px; background: var(--bg-2); border-left: 3px solid var(--border-2);
+    margin-top: 6px; border-radius: 2px; }
+  .lbs-explain b { color: var(--text-dim); }
+
   /* === SETTINGS / AI MODALS === */
   .form-grid { display: grid; gap: 10px; }
   .form-grid label { display: block; font-size: 11px; color: var(--text-dim);
@@ -1071,10 +1206,11 @@
       <button class="tb-btn" data-action="connect-all" title="Analyze the project and add missing likely connections">Auto-connect</button>
     </div>
     <div class="tb-group" id="view-seg">
-      <button class="tb-btn seg-btn" data-set-view="local" title="Local network view">Local</button>
-      <button class="tb-btn seg-btn" data-set-view="city"  title="City / metro view">City</button>
-      <button class="tb-btn seg-btn" data-set-view="world" title="Planet sites view">Planet</button>
-      <button class="tb-btn seg-btn" data-set-view="space" title="Space network view">Space</button>
+      <button class="tb-btn seg-btn" data-set-view="local"     title="Local network view">Local</button>
+      <button class="tb-btn seg-btn" data-set-view="city"      title="City / metro view">City</button>
+      <button class="tb-btn seg-btn" data-set-view="world"     title="Planet sites view">Planet</button>
+      <button class="tb-btn seg-btn" data-set-view="space"     title="Space network view">Space</button>
+      <button class="tb-btn seg-btn" data-set-view="deepspace" title="Interplanetary link budget studio">Deep Space</button>
       <button class="tb-btn live-on" data-action="toggle-live" id="live-toggle-btn" title="City lights, planes, satellites (planet view only)">Live</button>
     </div>
     <div class="tb-group">
@@ -1219,6 +1355,25 @@
           <stop offset="58%" stop-color="#020817" stop-opacity="0.62"/>
           <stop offset="100%" stop-color="#061a3d" stop-opacity="0"/>
         </radialGradient>
+        <!-- Deep Space view: heliocentric sun + planet gradients -->
+        <radialGradient id="sun-gradient" cx="50%" cy="50%" r="50%">
+          <stop offset="0%"  stop-color="#fff8dc"/>
+          <stop offset="35%" stop-color="#ffd76a"/>
+          <stop offset="75%" stop-color="#ff8a2a"/>
+          <stop offset="100%" stop-color="#bb3d10"/>
+        </radialGradient>
+        <radialGradient id="sun-corona" cx="50%" cy="50%" r="50%">
+          <stop offset="0%"  stop-color="#ffd76a" stop-opacity="0.55"/>
+          <stop offset="60%" stop-color="#ff8a2a" stop-opacity="0.18"/>
+          <stop offset="100%" stop-color="#ff8a2a" stop-opacity="0"/>
+        </radialGradient>
+        <filter id="planet-shade" x="-20%" y="-20%" width="140%" height="140%">
+          <feGaussianBlur stdDeviation="0.6"/>
+        </filter>
+        <filter id="ds-link-glow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="2.5" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
       </defs>
       <g id="world">
         <rect id="grid-bg" x="-10000" y="-10000" width="20000" height="20000"
@@ -1236,6 +1391,8 @@
         <g id="endpoints-layer"></g>
         <g id="spacelinks-layer"></g>
         <g id="spaceassets-layer"></g>
+        <g id="deepspace-layer"></g>
+        <g id="deepspace-link-layer"></g>
         <g id="overlay-layer"></g>
       </g>
     </svg>
@@ -1584,7 +1741,8 @@ const state = {
   worldView: { pan: { x: 0, y: 0 }, zoom: 0.3 }, // separate viewport for world mode
   cityView:  { pan: { x: 0, y: 0 }, zoom: 0.6 }, // separate viewport for city mode
   spaceView: { pan: { x: 0, y: 0 }, zoom: 0.5 }, // separate viewport for space mode
-  viewMode: 'local',    // 'local' | 'world' | 'city' | 'space'
+  deepView:  { pan: { x: 0, y: 0 }, zoom: 0.5 }, // separate viewport for deep-space mode
+  viewMode: 'local',    // 'local' | 'world' | 'city' | 'space' | 'deepspace'
   activeSiteId: null,   // which site's network is being designed in local view
   activeCityId: null,   // which city is being designed in city view
   activeEndpointType: null, // set when user picks an endpoint to place
@@ -1608,6 +1766,23 @@ const state = {
   gridSize: 20,
   showGrid: true,
   liveMap: true,
+
+  // === DEEP SPACE LINK BUDGET ===
+  comms: {
+    sourceId: 'dsn70',          // station preset id or 'custom'
+    targetId: 'mars',           // planet/spacecraft id or 'custom'
+    customTargetKm: 225e6,      // used when targetId === 'custom'
+    txPowerW: 20000,            // 20 kW (DSN-class default)
+    txGainDbi: 73,              // 70m dish at X-band
+    rxGainDbi: 47,              // 3m HGA at X-band
+    freqGHz: 8.4,               // X-band downlink
+    dataBps: 6_000_000,         // 6 Mbps
+    noiseTempK: 21,             // very cold LNA
+    modFec: 'qpsk_12_ldpc',     // QPSK 1/2 LDPC default
+    atmLossDb: 0.3,             // small atmospheric loss
+    pointingLossDb: 0.5,
+    epochMs: Date.now(),        // for ephemeris (refreshed on render)
+  },
 };
 
 const history = {
@@ -1696,6 +1871,8 @@ const dom = {
   spacemapLayer: document.getElementById('spacemap-layer'),
   spaceassetsLayer: document.getElementById('spaceassets-layer'),
   spacelinksLayer:  document.getElementById('spacelinks-layer'),
+  deepspaceLayer:   document.getElementById('deepspace-layer'),
+  deepspaceLinkLayer: document.getElementById('deepspace-link-layer'),
   tileMap:       document.getElementById('tile-map'),
   prBody:        document.getElementById('pr-body'),
   prType:        document.getElementById('pr-type'),
@@ -2045,6 +2222,8 @@ function renderAll() {
     renderSpaceMap();
     renderSpaceLinks();
     renderSpaceAssets();
+  } else if (state.viewMode === 'deepspace') {
+    renderDeepSpace();
   } else {
     renderZones();
     renderLinks();
@@ -2820,6 +2999,11 @@ function renderProperties() {
   const ids = [...state.selectedIds];
 
   if (ids.length === 0) {
+    if (state.viewMode === 'deepspace') {
+      renderLinkBudgetStudio();
+      dom.prActions.style.display = 'none';
+      return;
+    }
     dom.prType.textContent = '';
     dom.prBody.innerHTML = `<div class="pr-empty">No selection.<br><br>Drag a device from the left panel onto the canvas to start designing.</div>`;
     dom.prActions.style.display = 'none';
@@ -3899,23 +4083,27 @@ let _savedLocalView = { pan: { x: 0, y: 0 }, zoom: 1 };
 function setViewMode(mode) {
   if (mode === state.viewMode) return;
   // Save current viewport
-  if (state.viewMode === 'local')      _savedLocalView = { pan: { ...state.view.pan }, zoom: state.view.zoom };
-  else if (state.viewMode === 'world') state.worldView = { pan: { ...state.view.pan }, zoom: state.view.zoom };
-  else if (state.viewMode === 'city')  state.cityView  = { pan: { ...state.view.pan }, zoom: state.view.zoom };
-  else if (state.viewMode === 'space') state.spaceView = { pan: { ...state.view.pan }, zoom: state.view.zoom };
+  if (state.viewMode === 'local')          _savedLocalView = { pan: { ...state.view.pan }, zoom: state.view.zoom };
+  else if (state.viewMode === 'world')     state.worldView = { pan: { ...state.view.pan }, zoom: state.view.zoom };
+  else if (state.viewMode === 'city')      state.cityView  = { pan: { ...state.view.pan }, zoom: state.view.zoom };
+  else if (state.viewMode === 'space')     state.spaceView = { pan: { ...state.view.pan }, zoom: state.view.zoom };
+  else if (state.viewMode === 'deepspace') state.deepView  = { pan: { ...state.view.pan }, zoom: state.view.zoom };
   state.viewMode = mode;
   // Restore target viewport
   state.view =
-    mode === 'world' ? { pan: { ...state.worldView.pan }, zoom: state.worldView.zoom } :
-    mode === 'city'  ? { pan: { ...state.cityView.pan  }, zoom: state.cityView.zoom  } :
-    mode === 'space' ? { pan: { ...state.spaceView.pan }, zoom: state.spaceView.zoom } :
-                       { pan: { ..._savedLocalView.pan }, zoom: _savedLocalView.zoom };
-  document.body.classList.toggle('world-mode', mode === 'world');
-  document.body.classList.toggle('city-mode',  mode === 'city');
-  document.body.classList.toggle('space-mode', mode === 'space');
-  dom.svg.classList.toggle('world-mode', mode === 'world');
-  dom.svg.classList.toggle('city-mode',  mode === 'city');
-  dom.svg.classList.toggle('space-mode', mode === 'space');
+    mode === 'world'     ? { pan: { ...state.worldView.pan }, zoom: state.worldView.zoom } :
+    mode === 'city'      ? { pan: { ...state.cityView.pan  }, zoom: state.cityView.zoom  } :
+    mode === 'space'     ? { pan: { ...state.spaceView.pan }, zoom: state.spaceView.zoom } :
+    mode === 'deepspace' ? { pan: { ...state.deepView.pan  }, zoom: state.deepView.zoom  } :
+                           { pan: { ..._savedLocalView.pan }, zoom: _savedLocalView.zoom };
+  document.body.classList.toggle('world-mode',     mode === 'world');
+  document.body.classList.toggle('city-mode',      mode === 'city');
+  document.body.classList.toggle('space-mode',     mode === 'space');
+  document.body.classList.toggle('deepspace-mode', mode === 'deepspace');
+  dom.svg.classList.toggle('world-mode',     mode === 'world');
+  dom.svg.classList.toggle('city-mode',      mode === 'city');
+  dom.svg.classList.toggle('space-mode',     mode === 'space');
+  dom.svg.classList.toggle('deepspace-mode', mode === 'deepspace');
   dom.svg.classList.remove('place-site');
   state.activeNewSiteType = null;
   state.activeEndpointType = null;
@@ -3932,6 +4120,7 @@ function setViewMode(mode) {
   if (mode === 'world' && state.worldView.zoom === 0.3) requestAnimationFrame(fitWorld);
   if (mode === 'city' && cityById(state.activeCityId)) requestAnimationFrame(fitCity);
   if (mode === 'space') requestAnimationFrame(fitSpace);
+  if (mode === 'deepspace') requestAnimationFrame(fitDeepSpace);
 }
 
 function updateViewToggleButtons() {
@@ -3941,7 +4130,7 @@ function updateViewToggleButtons() {
 }
 
 function cycleViewMode() {
-  const order = ['local', 'city', 'world', 'space'];
+  const order = ['local', 'city', 'world', 'space', 'deepspace'];
   const idx = order.indexOf(state.viewMode);
   setViewMode(order[(idx + 1) % order.length]);
 }
@@ -4436,6 +4625,13 @@ function updateSiteBar() {
       : (state.mode === 'connect'
           ? 'Connect mode — click two assets to link them with the selected link type.'
           : 'Drag satellites along their orbit, double-click for details.');
+  } else if (mode === 'deepspace') {
+    dom.sbIcon.textContent = 'DEEP SPACE';
+    const src = DS_SOURCES[state.comms.sourceId] || DS_SOURCES.dsn70;
+    const tgt = DS_TARGETS[state.comms.targetId];
+    dom.sbContextLabel.textContent = 'Link budget';
+    dom.sbActiveSiteName.textContent = `${src.label} → ${tgt ? tgt.label : 'custom'}`;
+    dom.sbModeHint.textContent = 'Click a planet to switch target. Drag sliders on the right to tune the link.';
   } else {
     dom.sbIcon.textContent = 'SITE';
     const site = siteById(state.activeSiteId);
@@ -6970,6 +7166,679 @@ function openOrDownloadHtml(html, filename) {
   }
   // Fallback if popup blocked
   downloadBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), filename);
+}
+
+
+/* =========================================================================
+   DEEP SPACE — INTERPLANETARY LINK BUDGET STUDIO
+
+   Physics is straightforward closed-form:
+     FSPL_dB    = 92.45 + 20·log10(d_km) + 20·log10(f_GHz)
+     Pr_dBW     = Pt_dBW + Gt + Gr − FSPL − L_atm − L_pointing
+     C/N0_dBHz  = Pr_dBW + 228.6 − 10·log10(Ts)            (Boltzmann)
+     Eb/N0_dB   = C/N0 − 10·log10(R_bps)
+     Margin_dB  = Eb/N0_achieved − Eb/N0_required(mod+FEC)
+
+   Planet positions use simplified Standish J2000 mean elements. Good to
+   ~arcminutes over decades — plenty for link-distance estimation.
+   ========================================================================= */
+
+const DS_AU_KM  = 149597870.7;
+const DS_C_KMS  = 299792.458;
+const DS_K_DBW  = -228.6;             // 10·log10(Boltzmann constant) dBW/Hz/K
+
+// Transmit stations (source endpoints). Defaults reflect real ground/space gear.
+const DS_SOURCES = {
+  dsn70:    { label: 'DSN 70m (Goldstone)', host: 'earth', altKm: 0,
+              defaultTxW: 20000, defaultGtDbi: 73, defaultTsK: 21,
+              note: 'NASA Deep Space Network 70-meter antenna, X-band.' },
+  dsn34:    { label: 'DSN 34m BWG',         host: 'earth', altKm: 0,
+              defaultTxW: 20000, defaultGtDbi: 68, defaultTsK: 25,
+              note: 'DSN 34-meter beam-waveguide antenna, X/Ka-band.' },
+  estrack:  { label: 'ESA Estrack 35m',     host: 'earth', altKm: 0,
+              defaultTxW: 20000, defaultGtDbi: 68.5, defaultTsK: 28,
+              note: 'ESA deep-space stations (New Norcia, Cebreros, Malargüe).' },
+  starship: { label: 'Starship LEO',        host: 'earth', altKm: 500,
+              defaultTxW: 1000,  defaultGtDbi: 38, defaultTsK: 200,
+              note: 'Hypothetical Starship phased-array, V/Ka-band.' },
+  marsrelay:{ label: 'Mars relay orbiter',  host: 'mars',  altKm: 400,
+              defaultTxW: 100,   defaultGtDbi: 47, defaultTsK: 150,
+              note: 'MRO-class 3m HGA on a Mars science orbit.' },
+  lunargate:{ label: 'Lunar Gateway',       host: 'moon',  altKm: 70000,
+              defaultTxW: 200,   defaultGtDbi: 45, defaultTsK: 200,
+              note: 'NRHO Lunar Gateway X/Ka-band terminal.' },
+};
+
+// Targets — planets, the Moon, and a few notable spacecraft.
+// Planets get full Keplerian elements; spacecraft use a fixed distance.
+const DS_TARGETS = {
+  mercury: { label: 'Mercury', kind: 'planet', color: '#a8a29e', radiusVis: 5,
+             a: 0.38709927, e: 0.20563593, L0: 252.25032350, peri: 77.45779628,
+             rate: 149472.67411175 },
+  venus:   { label: 'Venus',   kind: 'planet', color: '#e6c478', radiusVis: 8,
+             a: 0.72333566, e: 0.00677672, L0: 181.97909950, peri: 131.60246718,
+             rate: 58517.81538729 },
+  earth:   { label: 'Earth',   kind: 'planet', color: '#5fb3ff', radiusVis: 8.5,
+             a: 1.00000261, e: 0.01671123, L0: 100.46457166, peri: 102.93768193,
+             rate: 35999.37244981 },
+  moon:    { label: 'Moon',    kind: 'satellite', parent: 'earth',
+             distKm: 384400, color: '#cbd5d8', radiusVis: 4,
+             note: 'Mean Earth-Moon distance.' },
+  mars:    { label: 'Mars',    kind: 'planet', color: '#d97644', radiusVis: 6.5,
+             a: 1.52371034, e: 0.09339410, L0: -4.55343205,  peri: -23.94362959,
+             rate: 19140.30268499 },
+  jupiter: { label: 'Jupiter', kind: 'planet', color: '#d8a460', radiusVis: 18,
+             a: 5.20288700, e: 0.04838624, L0: 34.39644051,  peri: 14.72847983,
+             rate: 3034.74612775 },
+  saturn:  { label: 'Saturn',  kind: 'planet', color: '#e9c97a', radiusVis: 15,
+             a: 9.53667594, e: 0.05386179, L0: 49.95424423,  peri: 92.59887831,
+             rate: 1222.49362201 },
+  uranus:  { label: 'Uranus',  kind: 'planet', color: '#9bd5d9', radiusVis: 10,
+             a: 19.18916464,e: 0.04725744, L0: 313.23810451, peri: 170.95427630,
+             rate: 428.48202785 },
+  neptune: { label: 'Neptune', kind: 'planet', color: '#5b7ddc', radiusVis: 10,
+             a: 30.06992276,e: 0.00859048, L0: -55.12002969, peri: 44.96476227,
+             rate: 218.45945325 },
+  jwst:    { label: 'JWST (Sun-Earth L2)', kind: 'spacecraft', parent: 'earth',
+             distKm: 1.5e6, color: '#ffd166', radiusVis: 3,
+             note: 'JWST orbits Sun-Earth L2 at ~1.5 million km from Earth.' },
+  voyager1:{ label: 'Voyager 1', kind: 'spacecraft', parent: 'sun',
+             distKm: 2.47e10, color: '#cccccc', radiusVis: 3,
+             note: 'Now ~165 AU from the Sun and receding at 17 km/s.' },
+  custom:  { label: 'Custom range', kind: 'custom',
+             color: '#d6dde6', radiusVis: 5,
+             note: 'Type any distance in km to model arbitrary scenarios.' },
+};
+
+// Frequency band labels for slider annotation.
+const DS_BANDS = [
+  { name: 'UHF',  lo: 0.3,  hi: 1.0  },
+  { name: 'L',    lo: 1.0,  hi: 2.0  },
+  { name: 'S',    lo: 2.0,  hi: 4.0  },
+  { name: 'C',    lo: 4.0,  hi: 8.0  },
+  { name: 'X',    lo: 8.0,  hi: 12.0 },
+  { name: 'Ku',   lo: 12.0, hi: 18.0 },
+  { name: 'Ka',   lo: 26.5, hi: 40.0 },
+  { name: 'V',    lo: 40.0, hi: 75.0 },
+  { name: 'W',    lo: 75.0, hi: 110.0},
+];
+function dsBandFor(fGhz) {
+  for (const b of DS_BANDS) if (fGhz >= b.lo && fGhz <= b.hi) return b.name;
+  return '—';
+}
+
+// Modulation + FEC presets. Required Eb/N0 values are typical operating points
+// for BER ~ 1e-6 from DVB-S2 / DSN telecom design handbook tables.
+const DS_MODFEC = {
+  bpsk_uncoded:    { label: 'BPSK uncoded',          ebn0Req: 10.5, bitsPerSym: 1 },
+  bpsk_12_conv:    { label: 'BPSK 1/2 Viterbi',      ebn0Req: 4.5,  bitsPerSym: 1 },
+  bpsk_16_turbo:   { label: 'BPSK 1/6 Turbo (DSN)',  ebn0Req: 0.5,  bitsPerSym: 1 },
+  qpsk_uncoded:    { label: 'QPSK uncoded',          ebn0Req: 10.5, bitsPerSym: 2 },
+  qpsk_12_conv:    { label: 'QPSK 1/2 Viterbi',      ebn0Req: 4.5,  bitsPerSym: 2 },
+  qpsk_12_ldpc:    { label: 'QPSK 1/2 LDPC',         ebn0Req: 1.0,  bitsPerSym: 2 },
+  qpsk_34_ldpc:    { label: 'QPSK 3/4 LDPC',         ebn0Req: 2.2,  bitsPerSym: 2 },
+  '8psk_23_ldpc':  { label: '8PSK 2/3 LDPC',         ebn0Req: 3.7,  bitsPerSym: 3 },
+  '16apsk_34_ldpc':{ label: '16APSK 3/4 LDPC',       ebn0Req: 6.4,  bitsPerSym: 4 },
+  '32apsk_910_ldpc':{label: '32APSK 9/10 LDPC',      ebn0Req: 11.3, bitsPerSym: 5 },
+};
+
+// One-click scenarios that snap the state to a realistic configuration.
+const DS_PRESETS = {
+  dsn_mro: {
+    label: 'DSN ↔ MRO at Mars',
+    apply: c => Object.assign(c, {
+      sourceId: 'dsn70', targetId: 'mars',
+      txPowerW: 100, txGainDbi: 47, rxGainDbi: 73, freqGHz: 8.4,
+      dataBps: 6_000_000, noiseTempK: 21, modFec: 'qpsk_12_ldpc',
+    }),
+  },
+  voyager: {
+    label: 'Voyager 1 today',
+    apply: c => Object.assign(c, {
+      sourceId: 'dsn70', targetId: 'voyager1',
+      txPowerW: 23, txGainDbi: 48, rxGainDbi: 73, freqGHz: 8.4,
+      dataBps: 160, noiseTempK: 30, modFec: 'bpsk_16_turbo',
+    }),
+  },
+  apollo: {
+    label: 'Apollo S-band Earth↔Moon',
+    apply: c => Object.assign(c, {
+      sourceId: 'dsn70', targetId: 'moon',
+      txPowerW: 20, txGainDbi: 27, rxGainDbi: 61, freqGHz: 2.287,
+      dataBps: 1_024_000, noiseTempK: 100, modFec: 'bpsk_12_conv',
+    }),
+  },
+  jwst: {
+    label: 'JWST Ka downlink',
+    apply: c => Object.assign(c, {
+      sourceId: 'dsn34', targetId: 'jwst',
+      txPowerW: 32, txGainDbi: 56, rxGainDbi: 79, freqGHz: 25.9,
+      dataBps: 28_000_000, noiseTempK: 30, modFec: 'qpsk_12_ldpc',
+    }),
+  },
+  marslink: {
+    label: 'Hypothetical Mars Starlink',
+    apply: c => Object.assign(c, {
+      sourceId: 'starship', targetId: 'mars',
+      txPowerW: 500, txGainDbi: 42, rxGainDbi: 42, freqGHz: 27.0,
+      dataBps: 25_000_000, noiseTempK: 200, modFec: '8psk_23_ldpc',
+    }),
+  },
+  pluto: {
+    label: 'New Horizons-class to Pluto orbit',
+    apply: c => Object.assign(c, {
+      sourceId: 'dsn70', targetId: 'neptune',  // neptune ≈ 30 AU (Pluto ~39)
+      txPowerW: 12, txGainDbi: 42, rxGainDbi: 73, freqGHz: 8.4,
+      dataBps: 1000, noiseTempK: 25, modFec: 'bpsk_16_turbo',
+    }),
+  },
+};
+
+// === Ephemeris: simplified Standish J2000 mean elements ===
+function dsJulianDate(ms) { return ms / 86400000 + 2440587.5; }
+function dsCenturiesSinceJ2000(ms) { return (dsJulianDate(ms) - 2451545.0) / 36525; }
+function dsSolveKepler(M, e) {
+  // M in radians. Newton iteration converges in <5 steps for e<0.3.
+  let E = M;
+  for (let i = 0; i < 8; i++) {
+    const dE = (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E));
+    E -= dE;
+    if (Math.abs(dE) < 1e-9) break;
+  }
+  return E;
+}
+function dsPlanetAU(targetId, atMs) {
+  // Returns heliocentric ecliptic-plane (x, y) in AU, ignoring inclination
+  // (fine for distance estimation between Earth and another planet).
+  const p = DS_TARGETS[targetId];
+  if (!p || p.kind !== 'planet') return { x: 0, y: 0, r: 0 };
+  const T = dsCenturiesSinceJ2000(atMs);
+  const L  = (p.L0   + p.rate * T) * Math.PI / 180;
+  const w  = (p.peri) * Math.PI / 180;
+  const M  = L - w;
+  const E  = dsSolveKepler(M, p.e);
+  const nu = 2 * Math.atan2(
+    Math.sqrt(1 + p.e) * Math.sin(E / 2),
+    Math.sqrt(1 - p.e) * Math.cos(E / 2)
+  );
+  const r  = p.a * (1 - p.e * Math.cos(E));
+  return { x: r * Math.cos(nu + w), y: r * Math.sin(nu + w), r };
+}
+
+// Distance from Earth to a target (km).
+function dsDistanceKm(targetId, atMs) {
+  const t = DS_TARGETS[targetId];
+  if (!t) return 0;
+  if (t.kind === 'custom') return state.comms.customTargetKm;
+  if (t.kind === 'spacecraft' || t.kind === 'satellite') return t.distKm;
+  const earth = dsPlanetAU('earth', atMs);
+  const tgt   = dsPlanetAU(targetId, atMs);
+  const dxAU = tgt.x - earth.x, dyAU = tgt.y - earth.y;
+  return Math.sqrt(dxAU * dxAU + dyAU * dyAU) * DS_AU_KM;
+}
+
+// === Pure link-budget calculation ===
+function dsComputeLinkBudget(c, atMs) {
+  const distKm  = Math.max(1, dsDistanceKm(c.targetId, atMs));
+  const ptDbW   = 10 * Math.log10(Math.max(1e-6, c.txPowerW));
+  const fGHz    = Math.max(0.05, c.freqGHz);
+  const fsplDb  = 92.45 + 20 * Math.log10(distKm) + 20 * Math.log10(fGHz);
+  const prDbW   = ptDbW + c.txGainDbi + c.rxGainDbi - fsplDb - c.atmLossDb - c.pointingLossDb;
+  const cn0     = prDbW - DS_K_DBW - 10 * Math.log10(c.noiseTempK); // -228.6 -> + thus subtract
+  const rBps    = Math.max(1, c.dataBps);
+  const ebN0    = cn0 - 10 * Math.log10(rBps);
+  const mod     = DS_MODFEC[c.modFec] || DS_MODFEC.qpsk_12_ldpc;
+  const margin  = ebN0 - mod.ebn0Req;
+  const lightS  = distKm / DS_C_KMS;
+  // Shannon capacity bound at the achieved C/N (per Hz of bandwidth).
+  // Use bandwidth ≈ R_bps / bits_per_symbol as a rough channel BW.
+  const bwHz    = rBps / mod.bitsPerSym;
+  const snrLin  = Math.pow(10, (cn0 - 10 * Math.log10(bwHz)) / 10);
+  const shannon = bwHz * Math.log2(1 + Math.max(0, snrLin));
+
+  // Limiting factor explanation
+  let limiter = 'closed';
+  if (margin < 0) {
+    if (fsplDb > 250) limiter = 'free-space loss dominates — increase aperture or drop bit-rate';
+    else if (c.noiseTempK > 80) limiter = 'noise-floor limited — cool the LNA or use a colder receiver';
+    else if (rBps > shannon * 1.2) limiter = 'bit-rate exceeds Shannon bound for this C/N — slow down';
+    else limiter = 'gain-limited — add aperture or boost TX power';
+  } else if (margin < 3) {
+    limiter = 'marginal — add ≥3 dB of safety against rain/pointing fades';
+  }
+
+  return {
+    distKm, fsplDb, ptDbW, prDbW, cn0, ebN0, margin,
+    lightS,            // one-way light delay (s)
+    shannonBps: shannon,
+    requiredEbN0: mod.ebn0Req,
+    modLabel: mod.label,
+    bitsPerSym: mod.bitsPerSym,
+    bandName: dsBandFor(fGHz),
+    limiter,
+  };
+}
+
+// === Heliocentric SVG renderer ===
+// World-space: Sun at (0,0), planets on log-scaled circular orbits.
+function dsLogOrbitR(au) { return 200 * Math.log2(au + 1); }
+
+function renderDeepSpace() {
+  const layer = dom.deepspaceLayer;
+  const linkLayer = dom.deepspaceLinkLayer;
+  layer.innerHTML = '';
+  linkLayer.innerHTML = '';
+  state.comms.epochMs = Date.now();
+
+  const frag = document.createDocumentFragment();
+
+  // Backdrop and starfield (deterministic for stable repaints).
+  frag.appendChild(svgEl('rect', {
+    class: 'ds-bg', x: -5000, y: -5000, width: 10000, height: 10000
+  }));
+  const rng = (seed => () => (seed = (seed * 9301 + 49297) % 233280) / 233280)(7);
+  for (let i = 0; i < 280; i++) {
+    const x = (rng() - 0.5) * 4200, y = (rng() - 0.5) * 4200;
+    const r = 0.5 + rng() * 1.4, op = 0.18 + rng() * 0.55;
+    frag.appendChild(svgEl('circle', { class: 'space-star', cx: x, cy: y, r, opacity: op }));
+  }
+
+  // Sun + corona at origin.
+  frag.appendChild(svgEl('circle', { class: 'ds-sun-corona', cx: 0, cy: 0, r: 120 }));
+  frag.appendChild(svgEl('circle', { class: 'ds-sun',        cx: 0, cy: 0, r: 30  }));
+  const sunLabel = svgEl('text', { class: 'ds-orbit-label', x: 0, y: 50, 'text-anchor': 'middle' });
+  sunLabel.textContent = 'Sun';
+  frag.appendChild(sunLabel);
+
+  // Orbits and planets.
+  const planets = ['mercury','venus','earth','mars','jupiter','saturn','uranus','neptune'];
+  const epoch = state.comms.epochMs;
+  const positions = {};
+  for (const pid of planets) {
+    const p = DS_TARGETS[pid];
+    const R = dsLogOrbitR(p.a);
+    // Orbit circle
+    frag.appendChild(svgEl('circle', { class: 'ds-orbit', cx: 0, cy: 0, r: R }));
+    // Orbit label (along +x for outer planets, slight offset for inner)
+    const ol = svgEl('text', { class: 'ds-orbit-label', x: R + 4, y: -4 });
+    ol.textContent = `${p.label} · ${p.a.toFixed(2)} AU`;
+    frag.appendChild(ol);
+    // Live planet position
+    const ph = dsPlanetAU(pid, epoch);
+    // Map heliocentric AU -> SVG: angle is preserved, radius uses log-orbit.
+    const theta = Math.atan2(ph.y, ph.x);
+    const px = R * Math.cos(theta);
+    const py = R * Math.sin(theta);
+    positions[pid] = { x: px, y: py, R, theta };
+
+    const g = svgEl('g', { class: 'ds-planet' + (state.comms.targetId === pid ? ' target' : ''),
+                           'data-target': pid, transform: `translate(${px.toFixed(2)},${py.toFixed(2)})` });
+    g.appendChild(svgEl('circle', { class: 'ds-planet-body', r: p.radiusVis, fill: p.color }));
+    const nameY = p.radiusVis + 14;
+    const nm = svgEl('text', { class: 'ds-planet-label', y: nameY });
+    nm.textContent = p.label;
+    g.appendChild(nm);
+    if (state.comms.targetId === pid) {
+      const meta = svgEl('text', { class: 'ds-planet-meta', y: nameY + 11 });
+      const d = dsDistanceKm(pid, epoch);
+      meta.textContent = `${(d / DS_AU_KM).toFixed(2)} AU · ${(d / 1e6).toFixed(1)}M km`;
+      g.appendChild(meta);
+    }
+    g.addEventListener('click', () => {
+      state.comms.targetId = pid;
+      renderAll();
+    });
+    frag.appendChild(g);
+  }
+
+  // Source: anchored to its host planet, slightly offset radially outward.
+  const src = DS_SOURCES[state.comms.sourceId] || DS_SOURCES.dsn70;
+  const hostPos = positions[src.host] || positions.earth || { x: 0, y: 0 };
+  // Push the source marker outward a little so it's visible from the planet.
+  const srcOffset = 22;
+  const ang = Math.atan2(hostPos.y, hostPos.x) || 0;
+  const sx = hostPos.x + Math.cos(ang) * srcOffset;
+  const sy = hostPos.y + Math.sin(ang) * srcOffset;
+  const sg = svgEl('g', { class: 'ds-source', transform: `translate(${sx.toFixed(2)},${sy.toFixed(2)})` });
+  sg.appendChild(svgEl('circle', { class: 'ds-source-pulse', r: 9 }));
+  sg.appendChild(svgEl('circle', { class: 'ds-source-ring',  r: 5.5 }));
+  const sl = svgEl('text', { class: 'ds-source-label', y: -10 });
+  sl.textContent = src.label;
+  sg.appendChild(sl);
+  frag.appendChild(sg);
+  layer.appendChild(frag);
+
+  // === Link line + light-speed packet ===
+  // Target position in SVG coords: planet uses its drawn position, spacecraft
+  // get a synthetic offset from their parent planet for visualization.
+  const tgt = DS_TARGETS[state.comms.targetId];
+  let tx = positions.earth ? positions.earth.x : 0;
+  let ty = positions.earth ? positions.earth.y : 0;
+  if (tgt) {
+    if (tgt.kind === 'planet' && positions[state.comms.targetId]) {
+      tx = positions[state.comms.targetId].x;
+      ty = positions[state.comms.targetId].y;
+    } else if (tgt.kind === 'satellite' || tgt.kind === 'spacecraft') {
+      const parent = positions[tgt.parent] || positions.earth || { x: 0, y: 0 };
+      const off = 28;
+      const pa = Math.atan2(parent.y, parent.x) || 0;
+      tx = parent.x + Math.cos(pa) * off;
+      ty = parent.y + Math.sin(pa) * off;
+    } else if (tgt.kind === 'custom') {
+      // Draw a synthetic node in the +x direction at outer-edge of viz
+      tx = 1100; ty = 0;
+    }
+  }
+
+  const lb = dsComputeLinkBudget(state.comms, epoch);
+  const cls = lb.margin >= 3 ? 'ok' : (lb.margin >= 0 ? 'marginal' : 'fail');
+
+  // Curved link path: a slight Bezier arc so even short hops are visible.
+  const mx = (sx + tx) / 2, my = (sy + ty) / 2;
+  const nx = -(ty - sy), ny = (tx - sx);
+  const norm = Math.max(1, Math.hypot(nx, ny));
+  const dist = Math.hypot(tx - sx, ty - sy);
+  const arc = Math.min(dist * 0.12, 90);
+  const cpx = mx + (nx / norm) * arc;
+  const cpy = my + (ny / norm) * arc;
+  const linkPath = `M ${sx} ${sy} Q ${cpx} ${cpy} ${tx} ${ty}`;
+  linkLayer.appendChild(svgEl('path', { class: `ds-link ${cls}`, d: linkPath, id: 'ds-link-path' }));
+
+  // Light-speed packet — duration scaled so a real light-minute = 6 visual seconds.
+  // Real one-way light delay can be tens of minutes; we cap visible animation to 14s.
+  const visDurS = Math.max(1.5, Math.min(14, lb.lightS / 60 * 6));
+  const packet = svgEl('circle', { class: 'ds-packet', cx: sx, cy: sy, r: 2.4 });
+  const animMo = svgEl('animateMotion', {
+    dur: `${visDurS}s`,
+    repeatCount: 'indefinite',
+    rotate: 'auto',
+    path: linkPath,
+  });
+  packet.appendChild(animMo);
+  linkLayer.appendChild(packet);
+
+  // Distance + delay readout near the midpoint of the link.
+  const txt = svgEl('text', { class: 'ds-readout-text', x: cpx, y: cpy - 6, 'text-anchor': 'middle' });
+  txt.textContent = `${(lb.distKm / 1e6).toFixed(1)}M km · ${dsFormatDelay(lb.lightS)} one-way`;
+  linkLayer.appendChild(txt);
+  const sub = svgEl('text', { class: 'ds-readout-dim', x: cpx, y: cpy + 7, 'text-anchor': 'middle' });
+  sub.textContent = `${lb.bandName}-band · ${state.comms.freqGHz} GHz · ${(state.comms.dataBps / 1e3).toFixed(0)} kbps`;
+  linkLayer.appendChild(sub);
+}
+
+function dsFormatDelay(s) {
+  if (s < 1)   return (s * 1000).toFixed(1) + ' ms';
+  if (s < 60)  return s.toFixed(2) + ' s';
+  if (s < 3600) {
+    const m = Math.floor(s / 60), r = (s - 60 * m).toFixed(0);
+    return `${m} min ${r}s`;
+  }
+  const h = Math.floor(s / 3600), m = Math.floor((s - 3600 * h) / 60);
+  return `${h}h ${m}m`;
+}
+
+function fitDeepSpace() {
+  const rect = dom.svg.getBoundingClientRect();
+  const pad = 80;
+  const w = 2400, h = 2400;
+  const zoom = clamp(Math.min((rect.width - pad*2) / w, (rect.height - pad*2) / h), 0.1, 4);
+  state.view.zoom = zoom;
+  state.view.pan.x = rect.width / 2;
+  state.view.pan.y = rect.height / 2;
+  updateWorldTransform();
+}
+
+// === Link Budget Studio (right-panel UI) ===
+function renderLinkBudgetStudio() {
+  const c = state.comms;
+  const lb = dsComputeLinkBudget(c, Date.now());
+  const verdictCls = lb.margin >= 3 ? 'ok' : (lb.margin >= 0 ? 'warn' : 'err');
+  const verdictText = lb.margin >= 3 ? 'Link closed' : (lb.margin >= 0 ? 'Marginal' : 'Fails');
+
+  // Helper to fmt dB / numbers with sign
+  const sf = (v, d = 1) => (v >= 0 ? '+' : '') + v.toFixed(d);
+  const f  = (v, d = 1) => v.toFixed(d);
+  const dBm = lb.prDbW + 30;
+  const prWatts = Math.pow(10, lb.prDbW / 10);
+
+  // Build options
+  const srcOpts = Object.entries(DS_SOURCES).map(([k, v]) =>
+    `<option value="${k}" ${k === c.sourceId ? 'selected' : ''}>${escapeHtml(v.label)}</option>`).join('');
+  const tgtOpts = Object.entries(DS_TARGETS).map(([k, v]) =>
+    `<option value="${k}" ${k === c.targetId ? 'selected' : ''}>${escapeHtml(v.label)}</option>`).join('');
+  const modOpts = Object.entries(DS_MODFEC).map(([k, v]) =>
+    `<option value="${k}" ${k === c.modFec ? 'selected' : ''}>${escapeHtml(v.label)} (Eb/N₀≥${v.ebn0Req} dB)</option>`).join('');
+  const presetBtns = Object.entries(DS_PRESETS).map(([k, p]) =>
+    `<button data-preset="${k}">${escapeHtml(p.label)}</button>`).join('');
+
+  // Log-slider helpers
+  const logSlider = (id, val, lo, hi, label, unit, fmtFn) => {
+    const logVal = Math.log10(val);
+    const logLo  = Math.log10(lo);
+    const logHi  = Math.log10(hi);
+    return `
+      <div class="lbs-row">
+        <label>${label}</label>
+        <input type="range" id="${id}" min="${logLo}" max="${logHi}" step="0.01" value="${logVal}">
+        <span class="val" id="${id}-val">${fmtFn(val)}<span class="unit">${unit}</span></span>
+      </div>`;
+  };
+  const linSlider = (id, val, lo, hi, step, label, unit) => `
+    <div class="lbs-row">
+      <label>${label}</label>
+      <input type="range" id="${id}" min="${lo}" max="${hi}" step="${step}" value="${val}">
+      <span class="val" id="${id}-val">${val}<span class="unit">${unit}</span></span>
+    </div>`;
+
+  // Waterfall — show dB contributions to received power.
+  // Pt → +Gt → +Gr → −FSPL → −losses → Pr  (relative to a 300 dB scale)
+  const bar = (name, db, kind) => {
+    const widthPct = Math.min(100, Math.abs(db) / 3); // 1% per 3 dB
+    const sideStyle = db >= 0 ? `left:50%;width:${widthPct}%` : `right:50%;width:${widthPct}%`;
+    return `
+      <div class="lbs-bar ${kind}">
+        <span class="name">${name}</span>
+        <div class="track"><div class="fill" style="${sideStyle}"></div></div>
+        <span class="v">${sf(db, 1)} dB</span>
+      </div>`;
+  };
+
+  const dom_pr = dom.prBody;
+  const sourceInfo = DS_SOURCES[c.sourceId] || {};
+  const targetInfo = DS_TARGETS[c.targetId] || {};
+
+  dom.prType.textContent = 'Link Budget Studio';
+  dom_pr.innerHTML = `
+  <div class="lbs">
+    <div class="lbs-head">
+      <span class="lbs-title"><b>${escapeHtml(sourceInfo.label || '')}</b> → <b>${escapeHtml(targetInfo.label || '')}</b></span>
+      <span class="lbs-verdict ${verdictCls}">${verdictText}</span>
+    </div>
+    <div class="lbs-body">
+
+      <div class="lbs-section">
+        <h4>Scenario presets</h4>
+        <div class="lbs-presets">${presetBtns}</div>
+      </div>
+
+      <div class="lbs-section">
+        <h4>Endpoints</h4>
+        <div class="lbs-row full"><label>Transmit station</label>
+          <select id="lbs-source">${srcOpts}</select></div>
+        <div class="lbs-row full"><label>Target</label>
+          <select id="lbs-target">${tgtOpts}</select></div>
+        ${targetInfo.kind === 'custom' ? `
+          <div class="lbs-row"><label>Distance</label>
+            <input type="range" id="lbs-customdist" min="3" max="13" step="0.01"
+              value="${Math.log10(Math.max(1000, c.customTargetKm))}">
+            <span class="val" id="lbs-customdist-val">${(c.customTargetKm / 1e6).toFixed(1)}<span class="unit">M km</span></span>
+          </div>` : ''}
+        <div class="lbs-explain"><b>Source:</b> ${escapeHtml(sourceInfo.note || '')}<br>
+          <b>Target:</b> ${escapeHtml(targetInfo.note || '')}</div>
+      </div>
+
+      <div class="lbs-section">
+        <h4>Transmitter</h4>
+        ${logSlider('lbs-pt', c.txPowerW, 0.1, 100000, 'TX power', 'W',
+          v => v < 1 ? v.toFixed(2) : v < 1000 ? v.toFixed(0) : (v / 1000).toFixed(1) + 'k')}
+        ${linSlider('lbs-gt', c.txGainDbi, 0, 80, 0.5, 'TX antenna gain', 'dBi')}
+        ${linSlider('lbs-freq', c.freqGHz, 0.1, 100, 0.1, 'Carrier frequency', 'GHz')}
+        <div class="lbs-explain">
+          Band: <b>${lb.bandName}</b>.
+          Higher freq buys aperture gain (Gt ∝ f²) but suffers more rain/atm loss.
+        </div>
+      </div>
+
+      <div class="lbs-section">
+        <h4>Receiver &amp; channel</h4>
+        ${linSlider('lbs-gr', c.rxGainDbi, 0, 80, 0.5, 'RX antenna gain', 'dBi')}
+        ${linSlider('lbs-ts', c.noiseTempK, 20, 500, 1, 'System noise temp', 'K')}
+        ${logSlider('lbs-rate', c.dataBps, 1, 1e9, 'Data rate', 'bps',
+          v => v < 1000 ? v.toFixed(0) : v < 1e6 ? (v / 1e3).toFixed(0) + 'k' : v < 1e9 ? (v / 1e6).toFixed(1) + 'M' : (v / 1e9).toFixed(1) + 'G')}
+        <div class="lbs-row full"><label>Modulation + FEC</label>
+          <select id="lbs-modfec">${modOpts}</select></div>
+        ${linSlider('lbs-atm', c.atmLossDb, 0, 10, 0.1, 'Atmospheric loss', 'dB')}
+        ${linSlider('lbs-point', c.pointingLossDb, 0, 5, 0.1, 'Pointing loss', 'dB')}
+      </div>
+
+      <div class="lbs-section">
+        <h4>Live readout</h4>
+        <div class="lbs-readout">
+          <span class="k">Distance</span>
+            <span class="v">${(lb.distKm / 1e6).toFixed(1)} M km
+              <span class="sub">${(lb.distKm / DS_AU_KM).toFixed(3)} AU</span></span>
+          <span class="k">One-way delay</span>
+            <span class="v">${dsFormatDelay(lb.lightS)}
+              <span class="sub">round trip ${dsFormatDelay(lb.lightS * 2)}</span></span>
+          <span class="k">FSPL</span>
+            <span class="v">${f(lb.fsplDb, 1)} dB</span>
+          <span class="k">Received power</span>
+            <span class="v">${f(lb.prDbW, 1)} dBW
+              <span class="sub">${f(dBm, 1)} dBm · ${prWatts < 1e-15 ? prWatts.toExponential(2) : prWatts.toExponential(2)} W</span></span>
+          <span class="k">C/N₀</span>
+            <span class="v">${f(lb.cn0, 1)} dB·Hz</span>
+          <span class="k">Eb/N₀ achieved</span>
+            <span class="v ${lb.margin >= 3 ? 'good' : (lb.margin >= 0 ? 'warn' : 'bad')}">${f(lb.ebN0, 1)} dB</span>
+          <span class="k">Eb/N₀ required</span>
+            <span class="v">${f(lb.requiredEbN0, 1)} dB
+              <span class="sub">${escapeHtml(lb.modLabel)}</span></span>
+          <span class="k">Margin</span>
+            <span class="v ${lb.margin >= 3 ? 'good' : (lb.margin >= 0 ? 'warn' : 'bad')}">${sf(lb.margin, 1)} dB</span>
+          <span class="k">Shannon bound</span>
+            <span class="v">${lb.shannonBps > 1e6 ? (lb.shannonBps / 1e6).toFixed(1) + ' Mbps' : (lb.shannonBps / 1e3).toFixed(2) + ' kbps'}</span>
+        </div>
+        <div class="lbs-explain"><b>Verdict:</b> ${escapeHtml(lb.limiter)}.</div>
+      </div>
+
+      <div class="lbs-section">
+        <h4>dB waterfall</h4>
+        <div class="lbs-waterfall">
+          ${bar('TX power',  lb.ptDbW,         'note')}
+          ${bar('+ TX gain', c.txGainDbi,      'gain')}
+          ${bar('+ RX gain', c.rxGainDbi,      'gain')}
+          ${bar('− FSPL',    -lb.fsplDb,       'loss')}
+          ${bar('− atm/point', -(c.atmLossDb + c.pointingLossDb), 'loss')}
+          ${bar('= Pr',      lb.prDbW,         'note')}
+        </div>
+      </div>
+
+    </div>
+  </div>`;
+
+  // === Wire up slider/select interactions ===
+  const $ = id => dom_pr.querySelector(`#${id}`);
+  const setVal = (id, val, fmt) => {
+    const el = dom_pr.querySelector(`#${id}-val`);
+    if (el) {
+      // preserve the .unit child if present
+      const unit = el.querySelector('.unit');
+      el.firstChild && (el.firstChild.nodeValue = fmt(val));
+      if (!el.firstChild) el.textContent = fmt(val);
+      if (unit) el.appendChild(unit);
+    }
+  };
+  // Wire log sliders
+  const wireLog = (id, key, fmt) => {
+    const el = $(id);
+    if (!el) return;
+    el.addEventListener('input', () => {
+      c[key] = Math.pow(10, parseFloat(el.value));
+      setVal(id, c[key], fmt);
+      // Re-render canvas + readouts (debounced via rAF would be nicer; this is fine)
+      renderDeepSpace();
+      renderLinkBudgetStudio();
+    });
+  };
+  const wireLin = (id, key, fmt) => {
+    const el = $(id);
+    if (!el) return;
+    el.addEventListener('input', () => {
+      c[key] = parseFloat(el.value);
+      setVal(id, c[key], fmt);
+      renderDeepSpace();
+      renderLinkBudgetStudio();
+    });
+  };
+  wireLog('lbs-pt',   'txPowerW',
+    v => v < 1 ? v.toFixed(2) : v < 1000 ? v.toFixed(0) : (v / 1000).toFixed(1) + 'k');
+  wireLin('lbs-gt',   'txGainDbi',  v => v.toFixed(1));
+  wireLin('lbs-freq', 'freqGHz',    v => v.toFixed(2));
+  wireLin('lbs-gr',   'rxGainDbi',  v => v.toFixed(1));
+  wireLin('lbs-ts',   'noiseTempK', v => v.toFixed(0));
+  wireLog('lbs-rate', 'dataBps',
+    v => v < 1000 ? v.toFixed(0) : v < 1e6 ? (v / 1e3).toFixed(0) + 'k' : v < 1e9 ? (v / 1e6).toFixed(1) + 'M' : (v / 1e9).toFixed(1) + 'G');
+  wireLin('lbs-atm',  'atmLossDb',     v => v.toFixed(1));
+  wireLin('lbs-point','pointingLossDb',v => v.toFixed(1));
+
+  // Custom distance slider (only when target is 'custom')
+  const cd = $('lbs-customdist');
+  if (cd) {
+    cd.addEventListener('input', () => {
+      c.customTargetKm = Math.pow(10, parseFloat(cd.value));
+      renderDeepSpace();
+      renderLinkBudgetStudio();
+    });
+  }
+
+  // Selects
+  const onSel = (id, key, after) => {
+    const el = $(id);
+    if (!el) return;
+    el.addEventListener('change', () => {
+      c[key] = el.value;
+      if (after) after();
+      renderDeepSpace();
+      renderLinkBudgetStudio();
+      updateSiteBar();
+    });
+  };
+  onSel('lbs-source', 'sourceId', () => {
+    // When source changes, adopt its sensible defaults if user hasn't tweaked.
+    const s = DS_SOURCES[c.sourceId];
+    if (s) {
+      c.txPowerW  = s.defaultTxW;
+      c.txGainDbi = s.defaultGtDbi;
+      c.noiseTempK = s.defaultTsK;
+    }
+  });
+  onSel('lbs-target', 'targetId');
+  onSel('lbs-modfec', 'modFec');
+
+  // Presets
+  dom_pr.querySelectorAll('[data-preset]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const p = DS_PRESETS[btn.getAttribute('data-preset')];
+      if (p && p.apply) {
+        p.apply(c);
+        renderDeepSpace();
+        renderLinkBudgetStudio();
+        updateSiteBar();
+      }
+    });
+  });
+
+  // Click a planet in the viz to set it as target (event delegation here so it
+  // survives re-renders) — handled in renderDeepSpace's per-planet click.
 }
 
 
