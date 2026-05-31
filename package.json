@@ -1,21 +1,25 @@
 {
   "name": "greynet",
   "version": "1.0.0",
-  "description": "GreyNet — offline network designer (CAD-style) with City / World / Space views.",
+  "description": "GreyNet — offline network designer (CAD-style) with City / Planet / Space views.",
   "main": "main.js",
   "private": true,
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
+    "security:audit": "npm audit && node scripts/security-audit.js",
     "build": "electron-builder --win --x64 --publish=never",
     "build:portable": "electron-builder --win portable --x64 --publish=never",
     "build:installer": "electron-builder --win nsis --x64 --publish=never"
   },
   "author": "GreyNet",
   "license": "UNLICENSED",
+  "dependencies": {
+    "leaflet": "^1.9.4"
+  },
   "devDependencies": {
-    "electron": "^33.0.0",
-    "electron-builder": "^25.1.8"
+    "electron": "^42.3.0",
+    "electron-builder": "^26.8.1"
   },
   "build": {
     "appId": "com.greynet.designer",
@@ -25,11 +29,13 @@
     },
     "files": [
       "main.js",
+      "preload.js",
       "index.html",
       "worldmap.png",
       "worldmap.jpg",
       "worldmap.webp",
-      "package.json"
+      "package.json",
+      "node_modules/leaflet/dist/**/*"
     ],
     "extraResources": [],
     "win": {

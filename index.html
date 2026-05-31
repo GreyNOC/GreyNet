@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; base-uri 'self'; object-src 'none'; frame-src 'none'; img-src 'self' data: blob: https://*.tile.openstreetmap.org https://maps.gstatic.com https://maps.googleapis.com; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' https://maps.googleapis.com https://maps.gstatic.com; connect-src 'self' https://*.tile.openstreetmap.org https://maps.googleapis.com https://maps.gstatic.com">
 <title>GreyNet — Network Designer</title>
 <style>
   :root {
@@ -336,8 +337,10 @@
   .site-bar { display: flex; align-items: center; gap: 12px;
     padding: 6px 12px; background: var(--bg-1); border-bottom: 1px solid var(--border);
     font-size: 11px; flex-shrink: 0; }
-  .sb-crumb { color: var(--text-dim); display: flex; align-items: center; gap: 6px; font-size: 11px; }
-  .sb-globe { font-size: 14px; }
+  .sb-crumb { color: var(--text-dim); display: flex; align-items: center; gap: 8px; font-size: 11px; }
+  .sb-scope { font-size: 9.5px; font-weight: 700; letter-spacing: 1px;
+    color: var(--text-dim); background: var(--bg-2); border: 1px solid var(--border);
+    padding: 2px 7px; border-radius: 3px; font-family: "SF Mono", Menlo, Consolas, monospace; }
   .sb-label { color: var(--text); }
   .sb-switcher { position: relative; }
   .sb-switch-btn { background: var(--bg-2); border: 1px solid var(--border-2); color: var(--text);
@@ -378,9 +381,9 @@
 
   .world-ocean { fill: url(#ocean-gradient); }
   .world-image { opacity: 0.95; }
-  .continent { fill: #16263f; fill-opacity: 0.92; stroke: #4ea7e8; stroke-width: 0.6; }
-  .continent-rim { fill: none; stroke: #00d4ff; stroke-width: 1.4;
-    opacity: 0.55; filter: url(#continent-rim); pointer-events: none; }
+  .continent { fill: #16263f; fill-opacity: 0.92; stroke: #3e6f9c; stroke-width: 0.6; }
+  .continent-rim { fill: none; stroke: #2d6a99; stroke-width: 1;
+    opacity: 0.28; filter: url(#continent-rim); pointer-events: none; }
   .latlng-grid line { stroke: rgba(95,179,255,0.10); stroke-width: 0.5; }
   .latlng-grid line.equator { stroke: rgba(95,179,255,0.22); stroke-width: 0.7; }
   .latlng-grid text { fill: rgba(140,180,220,0.55); font-size: 12px;
@@ -399,12 +402,12 @@
 
   /* === LIVE MAP: city lights, planes, satellites === */
   .city-light { fill: #ffd166; filter: url(#city-glow); pointer-events: none;
-    animation: city-pulse 3.5s ease-in-out infinite; transform-box: fill-box;
+    animation: city-pulse 6s ease-in-out infinite; transform-box: fill-box;
     transform-origin: center; }
   .city-light.big { fill: #ffe6a8; }
   @keyframes city-pulse {
-    0%, 100% { opacity: 0.55; }
-    50%      { opacity: 1.0; }
+    0%, 100% { opacity: 0.72; }
+    50%      { opacity: 0.92; }
   }
   .flight-route { fill: none; stroke: rgba(180,210,255,0.10);
     stroke-width: 0.5; stroke-dasharray: 6 6; pointer-events: none; }
@@ -460,12 +463,20 @@
   body.city-mode .pal-devices,
   body.city-mode .pal-sites { display: none; }
   body.city-mode .pal-endpoints { display: block; }
+  body.city-mode .pal-city-sites { display: block; }
   body:not(.city-mode) .pal-endpoints { display: none; }
+  body:not(.city-mode) .pal-city-sites { display: none; }
 
   /* Tile map (Leaflet/Google) overlay */
   .tile-map { position: absolute; top: 32px; left: 0; right: 0; bottom: 0;
     background: #0b1118; z-index: 5; overflow: hidden; }
   .tile-map.hidden { display: none; }
+  .tile-map-status { position: absolute; left: 12px; bottom: 12px; z-index: 600;
+    max-width: min(420px, calc(100% - 24px)); padding: 8px 10px;
+    background: rgba(17,22,29,0.92); border: 1px solid var(--border-2);
+    border-radius: 4px; color: var(--text-dim); font-size: 11px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.35); pointer-events: none; }
+  .tile-map-status.error { border-color: rgba(255,107,107,0.55); color: #ffb0b0; }
   /* In city view, the SVG canvas sits below the tile-map for OSM/Google */
   #canvas.has-tile-map { pointer-events: none; }
   .leaflet-container { background: #0b1118 !important; }
@@ -481,6 +492,9 @@
     border-color: var(--border) !important;
   }
   .leaflet-control-zoom a:hover { background: var(--bg-2) !important; }
+  .leaflet-site-ref .site-ref-marker { width:32px;height:32px;border-radius:50%;
+    background:#11161d;border:2px solid #5fb3ff;display:flex;align-items:center;justify-content:center;
+    color:#fff;box-shadow:0 0 8px rgba(95,179,255,0.65);font-size:16px;font-weight:700; }
 
   .city-bg-rect { fill: #1a2433; stroke: var(--border-2); stroke-width: 2; rx: 6; }
   .city-bg-image { opacity: 0.95; }
@@ -537,22 +551,35 @@
   body.space-mode .pal-space { display: block; }
   body:not(.space-mode) .pal-space { display: none; }
 
-  .space-bg { fill: #02050d; }
+  .space-bg { fill: url(#space-bg-gradient); }
   .space-star { fill: #fff; }
-  .earth-body { fill: url(#earth-gradient); stroke: rgba(95,179,255,0.4); stroke-width: 2; }
-  .earth-glow { fill: none; stroke: rgba(95,179,255,0.35); stroke-width: 6; filter: blur(8px); }
+  .space-star.near { filter: url(#star-glow); }
+  .space-grid-line { stroke: rgba(95,179,255,0.08); stroke-width: 1; stroke-dasharray: 2 18; pointer-events: none; }
+  .earth-body { fill: url(#earth-gradient); stroke: rgba(133,227,255,0.55); stroke-width: 2; }
+  .earth-night { fill: url(#earth-night-gradient); opacity: 0.62; pointer-events: none; }
+  .earth-limb { fill: none; stroke: rgba(214,221,230,0.18); stroke-width: 1.2; pointer-events: none; }
+  .earth-glow { fill: none; stroke: rgba(95,179,255,0.20); stroke-width: 4; filter: url(#soft-glow); }
+  .earth-atmosphere { fill: none; stroke: rgba(133,227,255,0.10); stroke-width: 10; filter: url(#soft-glow); pointer-events: none; }
+  .earth-land { fill: rgba(188,213,238,0.34); stroke: rgba(188,213,238,0.22); stroke-width: 1; }
+  .orbit-band { fill: none; stroke-width: 28; opacity: 0.055; pointer-events: none; }
+  .orbit-plane { fill: none; stroke: rgba(133,227,255,0.1); stroke-width: 1; stroke-dasharray: 10 12; pointer-events: none; }
   .orbit-ring { fill: none; stroke-dasharray: 6 8; }
   .orbit-ring.leo  { stroke: rgba(111,207,151,0.45); }
   .orbit-ring.meo  { stroke: rgba(245,200,76,0.45); }
   .orbit-ring.geo  { stroke: rgba(255,140,66,0.45); }
   .orbit-ring.deep { stroke: rgba(179,136,235,0.3); }
+  .orbit-tick { stroke: rgba(214,221,230,0.18); stroke-width: 1; pointer-events: none; }
   .orbit-label { fill: var(--text-faint); font-size: 12px;
     font-family: "SF Mono", Menlo, monospace; text-anchor: middle; pointer-events: none; }
+  .space-scale-label { fill: rgba(214,221,230,0.48); font-size: 10px;
+    font-family: "SF Mono", Menlo, monospace; pointer-events: none; }
 
   .space-asset { cursor: pointer; }
-  .space-asset .sa-bg { fill: var(--bg-0); stroke-width: 2; }
+  .space-asset .sa-halo { fill: none; stroke-width: 8; opacity: 0.16; filter: url(#soft-glow); pointer-events: none; }
+  .space-asset .sa-bg { fill: rgba(14,17,22,0.92); stroke-width: 2; }
   .space-asset .sa-icon { color: #fff; pointer-events: none; }
   .space-asset.selected .sa-bg { stroke: var(--select); stroke-width: 3; filter: drop-shadow(0 0 6px var(--select)); }
+  .space-asset.connect-pending .sa-bg { stroke: #85e3ff; stroke-width: 3; filter: url(#soft-glow); }
   .space-asset .sa-label { fill: var(--text); font-size: 11px; font-weight: 500;
     text-anchor: middle; pointer-events: none; user-select: none;
     paint-order: stroke; stroke: var(--bg-0); stroke-width: 3; }
@@ -560,12 +587,21 @@
     text-anchor: middle; pointer-events: none; user-select: none;
     text-transform: uppercase; letter-spacing: 1px;
     paint-order: stroke; stroke: var(--bg-0); stroke-width: 2.5; }
+  .space-asset .sa-alt { fill: rgba(214,221,230,0.72); font-size: 9px;
+    text-anchor: middle; pointer-events: none; user-select: none;
+    paint-order: stroke; stroke: var(--bg-0); stroke-width: 2.5; }
+  .space-asset .sa-stem { stroke: rgba(214,221,230,0.18); stroke-width: 1; stroke-dasharray: 2 4; pointer-events: none; }
+  .coverage-cone { fill: rgba(111,207,151,0.07); stroke: rgba(111,207,151,0.22);
+    stroke-width: 1; stroke-dasharray: 4 5; pointer-events: none; }
   .space-link-hit { stroke: transparent; stroke-width: 10; fill: none; cursor: pointer; }
-  .space-link { fill: none; cursor: pointer; pointer-events: none; }
+  .space-link { fill: none; cursor: pointer; pointer-events: none; filter: url(#link-glow); }
+  .space-link.pulse { stroke-dasharray: 1 12; stroke-linecap: round; opacity: 0.75;
+    animation: space-link-pulse 1.8s linear infinite; }
   .space-link.selected { filter: drop-shadow(0 0 6px var(--select)); }
   .space-link-label { fill: var(--text-dim); font-size: 10px; text-anchor: middle;
     pointer-events: none; user-select: none;
     paint-order: stroke; stroke: var(--bg-0); stroke-width: 3; }
+  @keyframes space-link-pulse { to { stroke-dashoffset: -26; } }
 
   /* === SETTINGS / AI MODALS === */
   .form-grid { display: grid; gap: 10px; }
@@ -1032,13 +1068,14 @@
     <div class="tb-group">
       <button class="tb-btn active" data-mode="select" title="Select & move (V)">Select<span class="kbd">V</span></button>
       <button class="tb-btn" data-mode="connect" title="Draw connections (C)">Connect<span class="kbd">C</span></button>
+      <button class="tb-btn" data-action="connect-all" title="Analyze the project and add missing likely connections">Auto-connect</button>
     </div>
     <div class="tb-group" id="view-seg">
-      <button class="tb-btn seg-btn" data-set-view="local" title="Local network view">🏢 Local</button>
-      <button class="tb-btn seg-btn" data-set-view="city"  title="City / metro view">🏙 City</button>
-      <button class="tb-btn seg-btn" data-set-view="world" title="Worldwide sites view">🌐 World</button>
-      <button class="tb-btn seg-btn" data-set-view="space" title="Space network view">🛰 Space</button>
-      <button class="tb-btn live-on" data-action="toggle-live" id="live-toggle-btn" title="City lights, planes, satellites (world view only)">✨ Live</button>
+      <button class="tb-btn seg-btn" data-set-view="local" title="Local network view">Local</button>
+      <button class="tb-btn seg-btn" data-set-view="city"  title="City / metro view">City</button>
+      <button class="tb-btn seg-btn" data-set-view="world" title="Planet sites view">Planet</button>
+      <button class="tb-btn seg-btn" data-set-view="space" title="Space network view">Space</button>
+      <button class="tb-btn live-on" data-action="toggle-live" id="live-toggle-btn" title="City lights, planes, satellites (planet view only)">Live</button>
     </div>
     <div class="tb-group">
       <button class="tb-btn" data-action="zoom-out" title="Zoom out (-)">−</button>
@@ -1052,7 +1089,7 @@
     <span class="tb-mode-pill" id="mode-pill">Select</span>
     <div class="tb-group">
       <button class="tb-btn scan-btn" data-action="scan" title="Run deep vulnerability scan">Scan</button>
-      <button class="tb-btn" data-action="ai" id="ai-btn" hidden title="Ask AI to build / configure the network">🤖 Ask AI</button>
+      <button class="tb-btn" data-action="ai" id="ai-btn" hidden title="Ask AI to build / configure the network">Ask AI</button>
       <button class="tb-btn" data-action="validate" title="Refresh quick validation">Validate</button>
       <button class="tb-btn" data-action="settings" title="Settings (API keys, theme, etc.)">⚙</button>
       <button class="tb-btn" data-action="help" title="Show keyboard shortcuts">?</button>
@@ -1068,7 +1105,7 @@
   <section class="canvas-wrap">
     <div class="site-bar" id="site-bar">
       <span class="sb-crumb">
-        <span class="sb-globe" id="sb-icon">🌐</span>
+        <span class="sb-scope" id="sb-icon">PLANET</span>
         <span class="sb-label" id="sb-context-label">Loading…</span>
       </span>
       <div class="sb-switcher" id="sb-switcher">
@@ -1082,12 +1119,12 @@
       <div class="city-bar-controls" id="city-bar-controls" style="display:none">
         <span style="color:var(--text-faint);font-size:10.5px">Backend:</span>
         <select id="city-backend-sel" title="Map backend for this city">
-          <option value="image">🖼 Image (offline)</option>
-          <option value="osm">🗺 OpenStreetMap (needs internet)</option>
-          <option value="gmaps" id="city-backend-gmaps-opt" hidden>🌐 Google Maps (key in Settings)</option>
+          <option value="osm">Streets (OpenStreetMap)</option>
+          <option value="image">Image (offline)</option>
+          <option value="gmaps" id="city-backend-gmaps-opt" hidden>Google Maps (key in Settings)</option>
         </select>
         <button id="city-new-btn" title="Add a new city">+ New city</button>
-        <button id="city-image-btn" title="Upload an image to use as the city backdrop">🖼 Upload image…</button>
+        <button id="city-image-btn" title="Upload an image to use as the city backdrop">Upload image…</button>
         <input type="file" id="city-image-input" accept="image/*" hidden>
       </div>
       <span class="sb-flex"></span>
@@ -1141,6 +1178,23 @@
           <feGaussianBlur stdDeviation="2.5" result="b"/>
           <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
         </filter>
+        <filter id="soft-glow" x="-200%" y="-200%" width="500%" height="500%">
+          <feGaussianBlur stdDeviation="6" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <filter id="link-glow" x="-100%" y="-100%" width="300%" height="300%">
+          <feGaussianBlur stdDeviation="1.6" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <filter id="star-glow" x="-200%" y="-200%" width="500%" height="500%">
+          <feGaussianBlur stdDeviation="1.2" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <radialGradient id="space-bg-gradient" cx="50%" cy="50%" r="70%">
+          <stop offset="0%" stop-color="#071121"/>
+          <stop offset="48%" stop-color="#030813"/>
+          <stop offset="100%" stop-color="#01030a"/>
+        </radialGradient>
         <!-- Airplane shape (tiny arrow) -->
         <symbol id="plane-shape" viewBox="-12 -8 24 16">
           <path d="M -10 0 L 8 0 M 8 -5 L 12 0 L 8 5 M -3 -3 L -3 3 M -7 -2 L -7 2"
@@ -1159,6 +1213,11 @@
           <stop offset="40%"  stop-color="#1f5894"/>
           <stop offset="80%"  stop-color="#0d2e58"/>
           <stop offset="100%" stop-color="#061a3d"/>
+        </radialGradient>
+        <radialGradient id="earth-night-gradient" cx="72%" cy="55%" r="70%">
+          <stop offset="0%" stop-color="#01040c" stop-opacity="0.92"/>
+          <stop offset="58%" stop-color="#020817" stop-opacity="0.62"/>
+          <stop offset="100%" stop-color="#061a3d" stop-opacity="0"/>
         </radialGradient>
       </defs>
       <g id="world">
@@ -1529,13 +1588,14 @@ const state = {
   activeSiteId: null,   // which site's network is being designed in local view
   activeCityId: null,   // which city is being designed in city view
   activeEndpointType: null, // set when user picks an endpoint to place
+  activeCitySiteId: null,   // set when user picks an existing local site to place on a city map
   activeCityLinkType: 'fiber_buried',
   activeSpaceAssetType: null,    // set when user picks a space asset to place
   activeSpaceLinkType: 'laser_isl',
   spaceAssets: [],   // { id, type, x, y, label, angle, orbit, props }
   spaceLinks: [],    // { id, fromAssetId, toAssetId, type, label }
-  gmapsApiKey: '',
-  aiApiKeys: { anthropic: '', openai: '' },
+  hasGmapsApiKey: false,
+  hasAiKeys: { anthropic: false, openai: false },
   aiProvider: 'anthropic',
   selectedIds: new Set(),
   mode: 'select', // 'select' | 'connect' | 'zone'
@@ -1559,11 +1619,21 @@ const history = {
 function snapshot() {
   return JSON.stringify({
     devices: state.devices, links: state.links, zones: state.zones,
+    sites: state.sites, siteLinks: state.siteLinks,
+    cities: state.cities, endpoints: state.endpoints, cityLinks: state.cityLinks,
+    spaceAssets: state.spaceAssets, spaceLinks: state.spaceLinks,
+    activeSiteId: state.activeSiteId, activeCityId: state.activeCityId, viewMode: state.viewMode,
   });
 }
 function restoreSnapshot(s) {
   const d = JSON.parse(s);
-  state.devices = d.devices; state.links = d.links; state.zones = d.zones;
+  state.devices = d.devices || []; state.links = d.links || []; state.zones = d.zones || [];
+  state.sites = d.sites || state.sites; state.siteLinks = d.siteLinks || [];
+  state.cities = d.cities || state.cities; state.endpoints = d.endpoints || []; state.cityLinks = d.cityLinks || [];
+  state.spaceAssets = d.spaceAssets || []; state.spaceLinks = d.spaceLinks || [];
+  state.activeSiteId = d.activeSiteId || state.activeSiteId;
+  state.activeCityId = d.activeCityId || state.activeCityId;
+  state.viewMode = d.viewMode || state.viewMode;
   state.selectedIds.clear();
 }
 function pushHistory() {
@@ -1759,6 +1829,25 @@ function renderPalette() {
   html.push(`</div></div>`);
   html.push(`</div>`);
 
+  // === BUILT SITES (city mode only) ===
+  html.push(`<div class="pal-city-sites">`);
+  html.push(`<div class="pal-section">`);
+  html.push(`<div class="pal-header"><span>Built Sites</span><span class="chev">▾</span></div>`);
+  html.push(`<div class="pal-grid">`);
+  for (const s of state.sites) {
+    const def = SITE_TYPES[s.type] || SITE_TYPES.office;
+    const count = state.devices.filter(d => d.siteId === s.id).length;
+    html.push(
+      `<button class="pal-item" draggable="true" data-city-site-id="${s.id}" title="Place ${escapeHtml(s.name)} on this city map">` +
+      `<svg viewBox="0 0 80 80" style="color:${def.color}"><use href="#${def.icon}"/></svg>` +
+      `<span class="pal-label">${escapeHtml(s.name)}</span>` +
+      `<span class="pal-label" style="font-size:9px;color:var(--text-faint)">${count} devices</span>` +
+      `</button>`
+    );
+  }
+  html.push(`</div></div>`);
+  html.push(`</div>`);
+
   // === SITES (world mode only) ===
   html.push(`<div class="pal-sites">`);
   html.push(`<div class="pal-section">`);
@@ -1843,6 +1932,19 @@ function renderPalette() {
   dom.palette.querySelectorAll('.pal-item[data-device-type]').forEach(it => {
     it.addEventListener('dragstart', onPaletteDragStart);
   });
+  dom.palette.querySelectorAll('.pal-item[data-city-site-id]').forEach(it => {
+    it.addEventListener('dragstart', onCitySiteDragStart);
+    it.addEventListener('click', () => {
+      state.activeCitySiteId = it.getAttribute('data-city-site-id');
+      state.activeEndpointType = null;
+      dom.svg.classList.add('place-site');
+      const site = siteById(state.activeCitySiteId);
+      dom.sbModeHint.textContent = `Click the city map to place ${site ? site.name : 'this site'}.`;
+      clearCitySitePaletteSelection();
+      dom.palette.querySelectorAll('.pal-item[data-endpoint-type]').forEach(x => x.style.background = '');
+      it.style.background = 'var(--bg-3)';
+    });
+  });
   dom.palette.querySelectorAll('.pal-item[data-site-type]').forEach(it => {
     it.addEventListener('click', () => {
       state.activeNewSiteType = it.getAttribute('data-site-type');
@@ -1855,9 +1957,11 @@ function renderPalette() {
   dom.palette.querySelectorAll('.pal-item[data-endpoint-type]').forEach(it => {
     it.addEventListener('click', () => {
       state.activeEndpointType = it.getAttribute('data-endpoint-type');
+      state.activeCitySiteId = null;
       dom.svg.classList.add('place-site');
       dom.sbModeHint.textContent = `Click on the city map to place a ${ENDPOINT_TYPES[state.activeEndpointType].label}.`;
       dom.palette.querySelectorAll('.pal-item[data-endpoint-type]').forEach(x => x.style.background = '');
+      clearCitySitePaletteSelection();
       it.style.background = 'var(--bg-3)';
     });
   });
@@ -1912,6 +2016,11 @@ function onPaletteDragStart(e) {
   e.dataTransfer.effectAllowed = 'copy';
 }
 
+function onCitySiteDragStart(e) {
+  e.dataTransfer.setData('text/site-id', e.currentTarget.getAttribute('data-city-site-id'));
+  e.dataTransfer.effectAllowed = 'copy';
+}
+
 
 /* =========================================================================
    RENDERING
@@ -1950,48 +2059,76 @@ function renderAll() {
 
 // === SPACE VIEW RENDERING ===
 function renderSpaceMap() {
-  dom.spacemapLayer.innerHTML = '';
   if (dom.spacemapLayer.dataset.built === '1') return;
+  dom.spacemapLayer.innerHTML = '';
   const frag = document.createDocumentFragment();
   // Space background (large rect centered at 0,0)
   frag.appendChild(svgEl('rect', {
     class: 'space-bg', x: -5000, y: -5000, width: 10000, height: 10000
   }));
-  // Stars (random scattered)
+  // Range grid and deterministic star depth field.
+  for (let p = -1800; p <= 1800; p += 300) {
+    frag.appendChild(svgEl('line', { class: 'space-grid-line', x1: -1800, y1: p, x2: 1800, y2: p }));
+    frag.appendChild(svgEl('line', { class: 'space-grid-line', x1: p, y1: -1800, x2: p, y2: 1800 }));
+  }
   const rng = (seed => () => (seed = (seed * 9301 + 49297) % 233280) / 233280)(42);
-  for (let i = 0; i < 220; i++) {
-    const x = (rng() - 0.5) * 4000;
-    const y = (rng() - 0.5) * 4000;
-    const r = 0.5 + rng() * 1.5;
-    const op = 0.3 + rng() * 0.5;
-    const c = svgEl('circle', { class: 'space-star', cx: x, cy: y, r, opacity: op });
+  for (let i = 0; i < 360; i++) {
+    const x = (rng() - 0.5) * 4600;
+    const y = (rng() - 0.5) * 4600;
+    const near = rng() > 0.86;
+    const r = near ? 1.4 + rng() * 1.8 : 0.45 + rng() * 1.05;
+    const op = near ? 0.58 + rng() * 0.38 : 0.18 + rng() * 0.48;
+    const c = svgEl('circle', { class: 'space-star' + (near ? ' near' : ''), cx: x, cy: y, r, opacity: op });
     frag.appendChild(c);
   }
-  // Earth glow + body
+  // Earth atmosphere, limb, night side, and simplified landmass cues.
+  frag.appendChild(svgEl('circle', { class: 'earth-atmosphere', cx: 0, cy: 0, r: 254 }));
   frag.appendChild(svgEl('circle', { class: 'earth-glow', cx: 0, cy: 0, r: 250 }));
   frag.appendChild(svgEl('circle', { class: 'earth-body', cx: 0, cy: 0, r: 240 }));
-  // Continent hint outlines on Earth (very simplified)
-  const land = svgEl('g', { opacity: 0.35, fill: '#bcd5ee' });
-  // Just a few subtle blobs to suggest land
+  const land = svgEl('g', { class: 'earth-land' });
   land.appendChild(svgEl('ellipse', { cx: -80, cy: -40, rx: 60, ry: 90 }));
   land.appendChild(svgEl('ellipse', { cx: 40, cy: 30, rx: 70, ry: 50 }));
   land.appendChild(svgEl('ellipse', { cx: 120, cy: -80, rx: 50, ry: 40 }));
   land.appendChild(svgEl('ellipse', { cx: -110, cy: 80, rx: 35, ry: 50 }));
   frag.appendChild(land);
-  // Orbital rings
+  frag.appendChild(svgEl('circle', { class: 'earth-night', cx: 0, cy: 0, r: 240 }));
+  frag.appendChild(svgEl('path', { class: 'earth-limb', d: 'M -55 -234 C 70 -160 105 -35 65 90 C 42 160 -4 211 -76 228' }));
+
+  // Orbit bands, inclined planes, rings, ticks, and labels.
+  const bandColors = { leo: '#6fcf97', iss: '#85c3ff', meo: '#f5c84c', geo: '#ff8c42', deep: '#b388eb' };
+  const planeAngles = { leo: -18, iss: 28, meo: 42, geo: 0, deep: -38 };
   for (const [key, def] of Object.entries(ORBIT_ALTITUDES)) {
+    frag.appendChild(svgEl('circle', {
+      class: 'orbit-band', cx: 0, cy: 0, r: def.radius,
+      stroke: bandColors[key] || '#85e3ff'
+    }));
+    frag.appendChild(svgEl('ellipse', {
+      class: 'orbit-plane', cx: 0, cy: 0, rx: def.radius, ry: Math.max(80, def.radius * 0.33),
+      transform: `rotate(${planeAngles[key] || 0})`
+    }));
     const ring = svgEl('circle', {
       class: 'orbit-ring ' + key,
       cx: 0, cy: 0, r: def.radius
     });
     frag.appendChild(ring);
-    // Label
+    for (let deg = 0; deg < 360; deg += 30) {
+      const a = deg * Math.PI / 180;
+      const inner = def.radius - (deg % 90 === 0 ? 12 : 7);
+      frag.appendChild(svgEl('line', {
+        class: 'orbit-tick',
+        x1: inner * Math.cos(a), y1: inner * Math.sin(a),
+        x2: def.radius * Math.cos(a), y2: def.radius * Math.sin(a)
+      }));
+    }
     const lbl = svgEl('text', {
       class: 'orbit-label', x: 0, y: -def.radius + 4
     });
     lbl.textContent = `${def.label} · ${def.km.toLocaleString()} km`;
     frag.appendChild(lbl);
   }
+  const scale = svgEl('text', { class: 'space-scale-label', x: -1030, y: 1040 });
+  scale.textContent = 'Earth-centered orbital model · visual radius is compressed, labels preserve altitude class';
+  frag.appendChild(scale);
   dom.spacemapLayer.appendChild(frag);
   dom.spacemapLayer.dataset.built = '1';
 }
@@ -2008,6 +2145,10 @@ function renderSpaceAssets() {
       transform: `translate(${pos.x} ${pos.y})`,
       'data-id': a.id, 'data-kind': 'spaceasset'
     });
+    if (a.type !== 'ground_station') {
+      g.appendChild(svgEl('line', { class: 'sa-stem', x1: -pos.x, y1: -pos.y, x2: 0, y2: 0 }));
+    }
+    g.appendChild(svgEl('circle', { class: 'sa-halo', cx: 0, cy: 0, r: 26, stroke: def.color }));
     g.appendChild(svgEl('circle', { class: 'sa-bg', cx: 0, cy: 0, r: 22, stroke: def.color }));
     g.appendChild(svgEl('use', {
       class: 'sa-icon', href: '#' + def.icon, x: -16, y: -16, width: 32, height: 32
@@ -2018,6 +2159,9 @@ function renderSpaceAssets() {
     const ty = svgEl('text', { class: 'sa-type', x: 0, y: 53 });
     ty.textContent = def.label;
     g.appendChild(ty);
+    const alt = svgEl('text', { class: 'sa-alt', x: 0, y: 66 });
+    alt.textContent = spaceAssetAltitudeLabel(a);
+    g.appendChild(alt);
     dom.spaceassetsLayer.appendChild(g);
   }
 }
@@ -2031,6 +2175,8 @@ function renderSpaceLinks() {
     const def = SPACE_LINK_TYPES[sl.type] || SPACE_LINK_TYPES.laser_isl;
     const selected = state.selectedIds.has(sl.id);
     const g = svgEl('g', { 'data-id': sl.id, 'data-kind': 'spacelink' });
+    const cone = spaceCoverageCone(a, b, def);
+    if (cone) g.appendChild(cone);
     g.appendChild(svgEl('line', { class: 'space-link-hit', x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y }));
     const attrs = {
       class: 'space-link' + (selected ? ' selected' : ''),
@@ -2039,6 +2185,13 @@ function renderSpaceLinks() {
     };
     if (def.dash) attrs['stroke-dasharray'] = def.dash;
     g.appendChild(svgEl('line', attrs));
+    const pulseAttrs = {
+      class: 'space-link pulse',
+      x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y,
+      stroke: def.color, 'stroke-width': Math.max(1.4, def.width * 0.65),
+      'stroke-dasharray': '1 14', 'stroke-linecap': 'round',
+    };
+    g.appendChild(svgEl('line', pulseAttrs));
     if (sl.label) {
       const t = svgEl('text', { class: 'space-link-label', x: (pa.x+pb.x)/2, y: (pa.y+pb.y)/2 - 6 });
       t.textContent = sl.label;
@@ -2061,6 +2214,33 @@ function spaceAssetPosition(a) {
   else r = (ORBIT_ALTITUDES[def.orbit] || ORBIT_ALTITUDES.leo).radius;
   const ang = a.angle || 0;
   return { x: r * Math.cos(ang), y: r * Math.sin(ang) };
+}
+
+function spaceAssetAltitudeLabel(a) {
+  const def = SPACE_ASSET_TYPES[a.type] || SPACE_ASSET_TYPES.satellite_leo;
+  if (a.type === 'ground_station') return 'surface';
+  const orbit = ORBIT_ALTITUDES[def.orbit] || ORBIT_ALTITUDES.leo;
+  return `${orbit.label} · ${orbit.km.toLocaleString()} km`;
+}
+
+function spaceCoverageCone(a, b, linkDef) {
+  const ground = a.type === 'ground_station' ? a : (b.type === 'ground_station' ? b : null);
+  const other = ground === a ? b : (ground === b ? a : null);
+  if (!ground || !other) return null;
+  const pg = spaceAssetPosition(ground);
+  const po = spaceAssetPosition(other);
+  const dx = po.x - pg.x, dy = po.y - pg.y;
+  const len = Math.hypot(dx, dy);
+  if (!len) return null;
+  const nx = -dy / len, ny = dx / len;
+  const spread = Math.min(90, Math.max(34, len * 0.12));
+  const near = Math.min(80, len * 0.22);
+  const p1 = { x: pg.x + nx * 10, y: pg.y + ny * 10 };
+  const p2 = { x: po.x + nx * spread, y: po.y + ny * spread };
+  const p3 = { x: po.x - nx * spread, y: po.y - ny * spread };
+  const p4 = { x: pg.x - nx * 10, y: pg.y - ny * 10 };
+  const d = `M ${p1.x} ${p1.y} C ${pg.x + dx * 0.35 + nx * near} ${pg.y + dy * 0.35 + ny * near}, ${po.x + nx * spread} ${po.y + ny * spread}, ${p2.x} ${p2.y} L ${p3.x} ${p3.y} C ${po.x - nx * spread} ${po.y - ny * spread}, ${pg.x + dx * 0.35 - nx * near} ${pg.y + dy * 0.35 - ny * near}, ${p4.x} ${p4.y} Z`;
+  return svgEl('path', { class: 'coverage-cone', d, stroke: linkDef.color });
 }
 
 function renderCityMap() {
@@ -2105,6 +2285,8 @@ function renderEndpoints() {
   for (const ep of state.endpoints) {
     if (state.activeCityId && ep.cityId !== state.activeCityId) continue;
     const def = ENDPOINT_TYPES[ep.type] || ENDPOINT_TYPES.building;
+    const site = ep.siteId ? siteById(ep.siteId) : null;
+    const siteDef = site ? (SITE_TYPES[site.type] || SITE_TYPES.office) : null;
     const selected = state.selectedIds.has(ep.id);
     const pending = state.pendingConnectId === ep.id;
     const g = svgEl('g', {
@@ -2112,9 +2294,9 @@ function renderEndpoints() {
       transform: `translate(${ep.x} ${ep.y})`,
       'data-id': ep.id, 'data-kind': 'endpoint'
     });
-    g.appendChild(svgEl('circle', { class: 'ep-ring', cx: 0, cy: 0, r: 22, stroke: def.color }));
+    g.appendChild(svgEl('circle', { class: 'ep-ring', cx: 0, cy: 0, r: 22, stroke: siteDef ? siteDef.color : def.color }));
     g.appendChild(svgEl('use', {
-      class: 'ep-icon', href: '#' + def.icon, x: -16, y: -16, width: 32, height: 32
+      class: 'ep-icon', href: '#' + (siteDef ? siteDef.icon : def.icon), x: -16, y: -16, width: 32, height: 32
     }));
     const lbl = svgEl('text', { class: 'ep-label', x: 0, y: 40 });
     lbl.textContent = ep.label || def.label;
@@ -2186,7 +2368,7 @@ function renderEmptyState() {
     const cnt = state.devices.filter(d => d.siteId === s.id).length;
     actionsHtml += `<button data-go="${s.id}">→ ${escapeHtml(s.name)} (${cnt} devices)</button>`;
   }
-  actionsHtml += `<button class="primary" data-go-world>🌐 World View</button>`;
+  actionsHtml += `<button class="primary" data-go-world>Open Planet view</button>`;
   dom.emptyStateActions.innerHTML = actionsHtml;
   dom.emptyStateActions.querySelectorAll('[data-go]').forEach(b => {
     b.addEventListener('click', () => setActiveSite(b.getAttribute('data-go')));
@@ -2207,7 +2389,7 @@ function renderWorldMap() {
   tryLoadWorldImage(['worldmap.jpg', 'worldmap.png', 'worldmap.webp']);
   // Tip text (hidden once image loads)
   const tip1 = svgEl('text', { class: 'image-tip', x: 1800, y: 1700 });
-  tip1.textContent = 'Tip: save your night-Earth image as worldmap.jpg in the project folder for a photographic background.';
+  tip1.textContent = 'Tip: save your night-Earth image as worldmap.jpg in the project folder for a photographic planet background.';
   frag.appendChild(tip1);
   // lat/lng grid every 30°
   const grid = svgEl('g', { class: 'latlng-grid' });
@@ -2725,9 +2907,19 @@ function renderSpaceLinkProperties(sl) {
 
 function renderEndpointProperties(ep) {
   const def = ENDPOINT_TYPES[ep.type];
-  dom.prType.textContent = def.label;
+  const linkedSite = ep.siteId ? siteById(ep.siteId) : null;
+  dom.prType.textContent = linkedSite ? 'Placed Site' : def.label;
   const props = ep.props || {};
   let html = '';
+  if (linkedSite) {
+    const deviceCount = state.devices.filter(d => d.siteId === linkedSite.id).length;
+    html += `<div class="pr-field" style="border-bottom:1px solid var(--border);padding-bottom:10px;margin-bottom:12px">` +
+      `<label>Linked local site</label>` +
+      `<div style="font-size:12px;color:var(--text)"><b>${escapeHtml(linkedSite.name)}</b></div>` +
+      `<div style="font-size:11px;color:var(--text-faint);margin-top:3px">${deviceCount} device${deviceCount === 1 ? '' : 's'} in local setup</div>` +
+      `<button type="button" data-enter-linked-site style="margin-top:8px;padding:6px 10px;background:var(--accent);color:var(--bg-0);border:none;border-radius:3px;font-size:11px;font-weight:600;cursor:pointer;width:100%">Open local site →</button>` +
+      `</div>`;
+  }
   html += `<div class="pr-field"><label>Label</label>` +
     `<input data-key="label" type="text" value="${escapeHtml(ep.label || '')}"/></div>`;
   // Type-specific fields
@@ -2747,6 +2939,7 @@ function renderEndpointProperties(ep) {
       `</div>`;
   }
   dom.prBody.innerHTML = html;
+  dom.prBody.querySelector('[data-enter-linked-site]')?.addEventListener('click', () => setActiveSite(linkedSite.id));
   dom.prBody.querySelectorAll('input').forEach(inp => {
     inp.addEventListener('change', () => {
       pushHistory();
@@ -3148,6 +3341,13 @@ dom.svg.addEventListener('mousedown', (e) => {
       // Still allow site-style select/move for endpoints rendered in SVG.
     }
     // Place new endpoint (image backend only)
+    if (state.activeCitySiteId && city && city.mapBackend === 'image' && !hitEl) {
+      placeSiteOnCityImage(state.activeCitySiteId, city, snap(world.x), snap(world.y));
+      state.activeCitySiteId = null;
+      dom.svg.classList.remove('place-site');
+      clearCitySitePaletteSelection();
+      return;
+    }
     if (state.activeEndpointType && city && city.mapBackend === 'image' && !hitEl) {
       pushHistory();
       const def = ENDPOINT_TYPES[state.activeEndpointType];
@@ -3440,6 +3640,9 @@ dom.svg.addEventListener('dblclick', (e) => {
   if (hitEl && hitEl.getAttribute('data-kind') === 'site') {
     const id = hitEl.getAttribute('data-id');
     setActiveSite(id);
+  } else if (hitEl && hitEl.getAttribute('data-kind') === 'endpoint') {
+    const ep = endpointById(hitEl.getAttribute('data-id'));
+    if (ep && ep.siteId) setActiveSite(ep.siteId);
   }
 });
 
@@ -3510,14 +3713,23 @@ dom.svg.addEventListener('contextmenu', (e) => {
 
 // Drop from palette
 dom.svg.addEventListener('dragover', (e) => {
-  if (e.dataTransfer.types.includes('text/device-type')) {
+  if (e.dataTransfer.types.includes('text/device-type') || e.dataTransfer.types.includes('text/site-id')) {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'copy';
   }
 });
 dom.svg.addEventListener('drop', (e) => {
   e.preventDefault();
-  if (state.viewMode === 'world') return; // device drops only in local view
+  const droppedSiteId = e.dataTransfer.getData('text/site-id');
+  if (droppedSiteId) {
+    if (state.viewMode !== 'city') return;
+    const city = cityById(state.activeCityId);
+    if (!city || city.mapBackend !== 'image') return;
+    const world = screenToWorld(e.clientX, e.clientY);
+    placeSiteOnCityImage(droppedSiteId, city, snap(world.x), snap(world.y));
+    return;
+  }
+  if (state.viewMode === 'world' || state.viewMode === 'city' || state.viewMode === 'space') return; // device drops only in local view
   const type = e.dataTransfer.getData('text/device-type');
   if (!type || !DEVICE_TYPES[type]) return;
   const world = screenToWorld(e.clientX, e.clientY);
@@ -3535,6 +3747,57 @@ dom.svg.addEventListener('drop', (e) => {
   state.selectedIds.add(id);
   renderAll();
 });
+
+function createCitySiteEndpoint(siteId, city, placement) {
+  const site = siteById(siteId);
+  if (!site || !city) return null;
+  const existing = state.endpoints.find(ep => ep.cityId === city.id && ep.siteId === site.id);
+  const base = existing || {
+    id: uid(),
+    type: 'building',
+    label: site.name,
+    cityId: city.id,
+    siteId: site.id,
+    props: {
+      address: site.address || '',
+      ip: '',
+      notes: `Linked local site: ${site.name}`,
+    },
+  };
+  base.label = site.name;
+  base.type = 'building';
+  base.cityId = city.id;
+  base.siteId = site.id;
+  base.props = { ...(base.props || {}), address: site.address || base.props?.address || '', notes: base.props?.notes || `Linked local site: ${site.name}` };
+  if (placement.lat != null && placement.lng != null) {
+    base.lat = placement.lat; base.lng = placement.lng;
+    base.x = 0; base.y = 0;
+  } else {
+    base.x = placement.x; base.y = placement.y;
+    base.lat = null; base.lng = null;
+  }
+  if (!existing) state.endpoints.push(base);
+  return base;
+}
+
+function placeSiteOnCityImage(siteId, city, x, y) {
+  pushHistory();
+  const ep = createCitySiteEndpoint(siteId, city, { x, y });
+  if (!ep) return;
+  state.selectedIds.clear();
+  state.selectedIds.add(ep.id);
+  renderAll();
+}
+
+function placeSiteOnCityLatLng(siteId, city, lat, lng) {
+  pushHistory();
+  const ep = createCitySiteEndpoint(siteId, city, { lat, lng });
+  if (!ep) return;
+  state.selectedIds.clear();
+  state.selectedIds.add(ep.id);
+  syncLeafletMarkers();
+  renderAll();
+}
 
 
 /* =========================================================================
@@ -3656,11 +3919,13 @@ function setViewMode(mode) {
   dom.svg.classList.remove('place-site');
   state.activeNewSiteType = null;
   state.activeEndpointType = null;
+  state.activeCitySiteId = null;
   state.activeSpaceAssetType = null;
   state.selectedIds.clear();
   state.pendingConnectId = null;
   clearOverlay();
   updateViewToggleButtons();
+  renderPalette();
   syncTileMap();
   updateWorldTransform();
   renderAll();
@@ -3717,14 +3982,32 @@ let _gmapPolylines = new Map();    // cityLinkId → google.maps.Polyline
 let _gmapLoadPromise = null;
 let _activeBackend = null;          // 'osm' | 'gmaps' | 'image' | null
 
+function setTileStatus(message, level = 'info') {
+  let status = dom.tileMap.querySelector('.tile-map-status');
+  if (!message) {
+    if (status) status.remove();
+    return;
+  }
+  if (!status) {
+    status = document.createElement('div');
+    status.className = 'tile-map-status';
+    dom.tileMap.appendChild(status);
+  }
+  status.className = 'tile-map-status' + (level === 'error' ? ' error' : '');
+  status.textContent = message;
+}
+
 function syncTileMap() {
   const city = cityById(state.activeCityId);
   const showTile = state.viewMode === 'city' && city && (city.mapBackend === 'osm' || city.mapBackend === 'gmaps');
   dom.tileMap.classList.toggle('hidden', !showTile);
+  dom.svg.classList.toggle('has-tile-map', !!showTile);
   if (!showTile) {
+    setTileStatus('');
     _activeBackend = null;
     return;
   }
+  setTileStatus(city.mapBackend === 'osm' ? 'Loading street map tiles…' : '');
   // Switching backend: clear the tile-map div so the new backend can take over
   if (_activeBackend && _activeBackend !== city.mapBackend) {
     // Destroy previous map instance so it doesn't fight for the div
@@ -3759,15 +4042,21 @@ function loadGoogleMaps(apiKey) {
 }
 
 async function ensureGoogleMap(city) {
-  const key = (state.gmapsApiKey || '').trim();
+  const key = await getGoogleMapsApiKey();
   if (!key) {
     dom.tileMap.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;
       height:100%;color:#8a95a4;text-align:center;padding:20px;font-size:13px">
-      <div>
-        <div style="font-size:32px;margin-bottom:10px">🔑</div>
-        Google Maps backend needs an API key.<br>
-        Open <b>Settings (⚙)</b> in the toolbar to add one,<br>
-        or switch the backend dropdown to <b>OpenStreetMap</b>.
+      <div style="max-width:320px">
+        <div style="font-size:10px;letter-spacing:1px;color:#5a6471;margin-bottom:8px">
+          GOOGLE MAPS BACKEND
+        </div>
+        <div style="font-size:13px;color:#d6dde6;margin-bottom:6px;font-weight:600">
+          API key required
+        </div>
+        <div>
+          Open <b>Settings</b> in the toolbar to add a key,<br>
+          or switch the backend dropdown to <b>OpenStreetMap</b>.
+        </div>
       </div></div>`;
     return;
   }
@@ -3928,16 +4217,17 @@ function onTileMarkerClick(epId) {
 
 function ensureLeafletMap(city) {
   if (_leafletLoaded) { initLeafletMap(city); return; }
-  // Lazy-load Leaflet from CDN
+  // Lazy-load Leaflet from the local npm package to avoid CDN script execution.
   const link = document.createElement('link');
   link.rel = 'stylesheet';
-  link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+  link.href = 'node_modules/leaflet/dist/leaflet.css';
   document.head.appendChild(link);
   const script = document.createElement('script');
-  script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+  script.src = 'node_modules/leaflet/dist/leaflet.js';
   script.onload = () => { _leafletLoaded = true; initLeafletMap(city); };
   script.onerror = () => {
-    dom.sbModeHint.textContent = 'Leaflet failed to load (offline?). Switch backend to "Image" for offline use.';
+    setTileStatus('Street map engine failed to load. Switch Backend to Image for offline use.', 'error');
+    dom.sbModeHint.textContent = 'Street map engine failed to load. Switch backend to "Image" for offline use.';
   };
   document.head.appendChild(script);
 }
@@ -3947,15 +4237,44 @@ function initLeafletMap(city) {
   if (!_leafletMap) {
     _leafletMap = L.map('tile-map', { zoomControl: true, attributionControl: true })
       .setView([city.centerLat, city.centerLng], 13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    const tiles = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '© OpenStreetMap contributors'
     }).addTo(_leafletMap);
+    let loadedOneTile = false;
+    tiles.on('tileload', () => {
+      if (!loadedOneTile) {
+        loadedOneTile = true;
+        setTileStatus('');
+      }
+    });
+    tiles.on('tileerror', () => {
+      if (!loadedOneTile) {
+        setTileStatus('Could not load OpenStreetMap street tiles. Check internet access, or switch Backend to Image.', 'error');
+      }
+    });
     _leafletMap.on('click', onLeafletMapClick);
+    const mapEl = _leafletMap.getContainer();
+    mapEl.addEventListener('dragover', (e) => {
+      if (e.dataTransfer.types.includes('text/site-id')) {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+      }
+    });
+    mapEl.addEventListener('drop', (e) => {
+      const siteId = e.dataTransfer.getData('text/site-id');
+      if (!siteId) return;
+      e.preventDefault();
+      const activeCity = cityById(state.activeCityId);
+      if (!activeCity) return;
+      const point = _leafletMap.mouseEventToLatLng(e);
+      placeSiteOnCityLatLng(siteId, activeCity, point.lat, point.lng);
+    });
   } else {
     _leafletMap.setView([city.centerLat, city.centerLng], 13);
     _leafletMap.invalidateSize();
   }
+  setTimeout(() => { try { _leafletMap.invalidateSize(); } catch (e) {} }, 80);
   syncLeafletMarkers();
 }
 
@@ -3972,20 +4291,31 @@ function syncLeafletMarkers() {
     if (ep.cityId !== state.activeCityId) continue;
     if (ep.lat == null || ep.lng == null) continue;
     const def = ENDPOINT_TYPES[ep.type] || ENDPOINT_TYPES.building;
-    const icon = L.divIcon({
-      className: 'leaflet-endpoint',
-      html: `<div style="width:32px;height:32px;border-radius:50%;background:#11161d;border:2px solid ${def.color};display:flex;align-items:center;justify-content:center;box-shadow:0 0 8px ${def.color}99"><svg viewBox="0 0 80 80" width="22" height="22" style="color:#fff"><use href="#${def.icon}"/></svg></div>`,
-      iconSize: [32, 32], iconAnchor: [16, 16],
-    });
+    const linkedSite = ep.siteId ? siteById(ep.siteId) : null;
+    const siteDef = linkedSite ? (SITE_TYPES[linkedSite.type] || SITE_TYPES.office) : null;
+    const icon = linkedSite
+      ? L.divIcon({
+          className: 'leaflet-site-ref',
+          html: `<div class="site-ref-marker" style="border-color:${siteDef.color};box-shadow:0 0 8px ${siteDef.color}99">⌂</div>`,
+          iconSize: [32, 32], iconAnchor: [16, 16],
+        })
+      : L.divIcon({
+          className: 'leaflet-endpoint',
+          html: `<div style="width:32px;height:32px;border-radius:50%;background:#11161d;border:2px solid ${def.color};display:flex;align-items:center;justify-content:center;box-shadow:0 0 8px ${def.color}99"><svg viewBox="0 0 80 80" width="22" height="22" style="color:#fff"><use href="#${def.icon}"/></svg></div>`,
+          iconSize: [32, 32], iconAnchor: [16, 16],
+        });
     const m = L.marker([ep.lat, ep.lng], { icon, draggable: true })
       .addTo(_leafletMap)
-      .bindPopup(`<b>${ep.label}</b><br>${def.label}`);
+      .bindPopup(linkedSite
+        ? `<b>${escapeHtml(linkedSite.name)}</b><br>Linked local site<br><small>Double-click marker to open local setup.</small>`
+        : `<b>${escapeHtml(ep.label)}</b><br>${escapeHtml(def.label)}`);
     m.on('dragend', (e) => {
       const ll = e.target.getLatLng();
       ep.lat = ll.lat; ep.lng = ll.lng;
       syncLeafletPolylines();
     });
     m.on('click', () => onTileMarkerClick(ep.id));
+    m.on('dblclick', () => { if (ep.siteId) setActiveSite(ep.siteId); });
     _leafletMarkers.set(ep.id, m);
   }
   syncLeafletPolylines();
@@ -4009,16 +4339,24 @@ function syncLeafletPolylines() {
 }
 
 function onLeafletMapClick(e) {
+  if (state.activeCitySiteId) {
+    const city = cityById(state.activeCityId);
+    placeSiteOnCityLatLng(state.activeCitySiteId, city, e.latlng.lat, e.latlng.lng);
+    state.activeCitySiteId = null;
+    dom.svg.classList.remove('place-site');
+    clearCitySitePaletteSelection();
+    return;
+  }
   if (!state.activeEndpointType) return;
   const def = ENDPOINT_TYPES[state.activeEndpointType];
   const city = cityById(state.activeCityId);
   pushHistory();
   const n = state.endpoints.filter(ep => ep.cityId === city.id && ep.type === state.activeEndpointType).length + 1;
-  const ep = {
-    id: uid(), type: state.activeEndpointType,
-    label: `${def.label} ${n}`,
-    lat: e.latlng.lat, lng: e.latlng.lng,
-    x: 0, y: 0, // SVG coords only used in image backend
+    const ep = {
+      id: uid(), type: state.activeEndpointType,
+      label: `${def.label} ${n}`,
+      lat: e.latlng.lat, lng: e.latlng.lng,
+      x: 0, y: 0, // SVG coords only used in image backend
     cityId: city.id,
     props: deepClone(def.defaultProps || {}),
   };
@@ -4029,6 +4367,10 @@ function onLeafletMapClick(e) {
   state.selectedIds.clear(); state.selectedIds.add(ep.id);
   syncLeafletMarkers();
   renderAll();
+}
+
+function clearCitySitePaletteSelection() {
+  dom.palette.querySelectorAll('.pal-item[data-city-site-id]').forEach(x => x.style.background = '');
 }
 
 const LIVE_MAP_KEY = 'greynet:livemap:v1';
@@ -4068,14 +4410,14 @@ function updateSiteBar() {
   dom.cityBarControls.style.display = (mode === 'city') ? 'flex' : 'none';
 
   if (mode === 'world') {
-    dom.sbIcon.textContent = '🌐';
-    dom.sbContextLabel.textContent = 'Worldwide';
+    dom.sbIcon.textContent = 'PLANET';
+    dom.sbContextLabel.textContent = 'Planet';
     dom.sbActiveSiteName.textContent = `${state.sites.length} site${state.sites.length === 1 ? '' : 's'}`;
     dom.sbModeHint.textContent = state.activeNewSiteType
       ? `Click anywhere on the map to place a ${SITE_TYPES[state.activeNewSiteType].label}.`
-      : 'World view — drag sites, connect them with inter-site links, double-click to enter a site.';
+      : 'Drag sites, connect with inter-site links, double-click to enter a site.';
   } else if (mode === 'city') {
-    dom.sbIcon.textContent = '🏙';
+    dom.sbIcon.textContent = 'CITY';
     const city = cityById(state.activeCityId);
     dom.sbContextLabel.textContent = city ? 'City' : '—';
     dom.sbActiveSiteName.textContent = city ? city.name : '(no city)';
@@ -4084,22 +4426,22 @@ function updateSiteBar() {
       ? `Click the map to place a ${ENDPOINT_TYPES[state.activeEndpointType].label}.`
       : (state.mode === 'connect'
           ? 'Connect mode — click two endpoints to link them with the selected cable type.'
-          : 'City view — pick a backend on the right, place endpoints, connect them.');
+          : 'Pick a backend, place endpoints, connect them.');
   } else if (mode === 'space') {
-    dom.sbIcon.textContent = '🛰';
-    dom.sbContextLabel.textContent = 'Space Network';
+    dom.sbIcon.textContent = 'SPACE';
+    dom.sbContextLabel.textContent = 'Space network';
     dom.sbActiveSiteName.textContent = `${state.spaceAssets.length} asset${state.spaceAssets.length === 1 ? '' : 's'}`;
     dom.sbModeHint.textContent = state.activeSpaceAssetType
       ? `Click on the orbital ring to place a ${SPACE_ASSET_TYPES[state.activeSpaceAssetType].label}.`
       : (state.mode === 'connect'
           ? 'Connect mode — click two assets to link them with the selected link type.'
-          : 'Space view — drag satellites along their orbit, double-click for details.');
+          : 'Drag satellites along their orbit, double-click for details.');
   } else {
-    dom.sbIcon.textContent = '🏢';
+    dom.sbIcon.textContent = 'SITE';
     const site = siteById(state.activeSiteId);
     dom.sbContextLabel.textContent = site ? 'Site' : '—';
     dom.sbActiveSiteName.textContent = site ? site.name : '(no site selected)';
-    dom.sbModeHint.textContent = 'Local view — designing this site\'s network';
+    dom.sbModeHint.textContent = 'Designing this site\'s local network.';
   }
 }
 
@@ -4129,10 +4471,11 @@ function renderSiteSwitcherMenu() {
     }).join('');
   }
   const actions = isCity
-    ? `<div class="sb-action" data-action="new-city">＋ Add new city…</div>
-       <div class="sb-action" data-action="open-world">🌐 World view</div>`
-    : `<div class="sb-action" data-action="open-world">🌐 World view</div>
-       <div class="sb-action" data-action="add-site">＋ Add new site…</div>`;
+    ? `<div class="sb-action" data-action="new-city">+ Add new city…</div>
+       <div class="sb-action" data-action="open-world">Open Planet view</div>`
+    : `<div class="sb-action" data-action="open-world">Open Planet view</div>
+       <div class="sb-action" data-action="new-city">+ Add new city…</div>
+       <div class="sb-action" data-action="add-site">+ Add new site…</div>`;
   dom.sbSwitchMenu.innerHTML = items + `<div class="sb-sep"></div>` + actions;
   dom.sbSwitchMenu.querySelectorAll('.sb-site').forEach(el => {
     el.addEventListener('click', () => {
@@ -4155,7 +4498,7 @@ function renderSiteSwitcherMenu() {
       if (a === 'open-world') setViewMode('world');
       else if (a === 'add-site') {
         setViewMode('world');
-        alert('In World View, click a site type in the left palette, then click the map to place it.');
+        alert('In Planet View, click a site type in the left palette, then click the map to place it.');
       } else if (a === 'new-city') {
         promptNewCity();
       }
@@ -4164,20 +4507,70 @@ function renderSiteSwitcherMenu() {
 }
 
 function promptNewCity() {
-  const name = prompt('City name:', 'New City');
-  if (!name) return;
-  const city = {
-    id: uid(), name,
-    centerLat: 40.71, centerLng: -74.00,
-    mapW: 2000, mapH: 1400,
-    mapBackend: 'osm', imageUrl: '', notes: '',
-  };
-  pushHistory();
-  state.cities.push(city);
-  state.activeCityId = city.id;
-  setViewMode('city');
-  syncTileMap();
-  renderAll();
+  const base = cityById(state.activeCityId) || { centerLat: 40.71, centerLng: -74.00 };
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.innerHTML = `
+    <div class="modal" style="min-width:420px;max-width:92vw">
+      <h3>Add City</h3>
+      <div class="form-grid">
+        <div>
+          <label>City name</label>
+          <input id="new-city-name" type="text" value="New City" placeholder="e.g. Atlanta"/>
+        </div>
+        <div class="pr-field-row">
+          <div class="pr-field">
+            <label>Latitude</label>
+            <input id="new-city-lat" type="number" step="0.0001" value="${Number(base.centerLat || 0).toFixed(4)}"/>
+          </div>
+          <div class="pr-field">
+            <label>Longitude</label>
+            <input id="new-city-lng" type="number" step="0.0001" value="${Number(base.centerLng || 0).toFixed(4)}"/>
+          </div>
+        </div>
+        <div>
+          <label>Map backend</label>
+          <select id="new-city-backend">
+            <option value="osm" selected>Streets (OpenStreetMap)</option>
+            <option value="image">Image / offline blank canvas</option>
+          </select>
+          <div class="form-help">Streets need internet access. Image mode works offline and can use an uploaded city map.</div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button data-close>Cancel</button>
+        <button class="primary" id="new-city-create">Create city</button>
+      </div>
+    </div>`;
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay || e.target.hasAttribute('data-close')) overlay.remove();
+  });
+  document.body.appendChild(overlay);
+  const nameInput = overlay.querySelector('#new-city-name');
+  nameInput.focus();
+  nameInput.select();
+  overlay.querySelector('#new-city-create').addEventListener('click', () => {
+    const name = nameInput.value.trim();
+    if (!name) { nameInput.focus(); return; }
+    const city = {
+      id: uid(), name,
+      centerLat: clampNum(overlay.querySelector('#new-city-lat').value, -90, 90, 40.71),
+      centerLng: clampNum(overlay.querySelector('#new-city-lng').value, -180, 180, -74.00),
+      mapW: 2000, mapH: 1400,
+      mapBackend: overlay.querySelector('#new-city-backend').value,
+      imageUrl: '', notes: '',
+    };
+    pushHistory();
+    state.cities.push(city);
+    state.activeCityId = city.id;
+    overlay.remove();
+    if (state.viewMode !== 'city') setViewMode('city');
+    else {
+      syncTileMap();
+      renderAll();
+      requestAnimationFrame(fitCity);
+    }
+  });
 }
 
 // Wire city-bar controls (once)
@@ -4498,8 +4891,198 @@ function diagramToJson() {
   };
 }
 
+const MAX_IMPORT_ITEMS = 2000;
+const MAX_STRING = 1000;
+const MAX_PROP_STRING = 2000;
+
+function clampNum(value, min, max, fallback = 0) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+function cleanString(value, max = MAX_STRING) {
+  return String(value == null ? '' : value).slice(0, max);
+}
+
+function cleanId(value) {
+  const id = cleanString(value, 96).replace(/[^\w:.-]/g, '');
+  return id || uid();
+}
+
+function cleanEnum(value, table, fallback) {
+  return Object.prototype.hasOwnProperty.call(table, value) ? value : fallback;
+}
+
+function cleanProps(props) {
+  const out = {};
+  if (!props || typeof props !== 'object' || Array.isArray(props)) return out;
+  for (const [k, v] of Object.entries(props).slice(0, 50)) {
+    out[cleanString(k, 64)] = cleanString(v, MAX_PROP_STRING);
+  }
+  return out;
+}
+
+function cleanUrl(value) {
+  const url = cleanString(value, 2048).trim();
+  if (!url) return '';
+  try {
+    const parsed = new URL(url);
+    return parsed.protocol === 'https:' ? url : '';
+  } catch (e) {
+    return /^[\w./ -]+\.(png|jpe?g|webp|gif)$/i.test(url) ? url : '';
+  }
+}
+
+function cleanArray(value) {
+  return Array.isArray(value) ? value.slice(0, MAX_IMPORT_ITEMS) : [];
+}
+
+function cleanView(value) {
+  if (!value || typeof value !== 'object') return null;
+  const pan = value.pan && typeof value.pan === 'object' ? value.pan : {};
+  return {
+    pan: {
+      x: clampNum(pan.x, -1000000, 1000000, 0),
+      y: clampNum(pan.y, -1000000, 1000000, 0),
+    },
+    zoom: clampNum(value.zoom, 0.05, 10, 1),
+  };
+}
+
+function sanitizeDiagram(obj) {
+  const devices = cleanArray(obj.devices).map(d => ({
+    id: cleanId(d.id),
+    type: cleanEnum(d.type, DEVICE_TYPES, 'workstation'),
+    x: clampNum(d.x, -100000, 100000),
+    y: clampNum(d.y, -100000, 100000),
+    label: cleanString(d.label || DEVICE_TYPES[cleanEnum(d.type, DEVICE_TYPES, 'workstation')].label),
+    props: cleanProps(d.props),
+    siteId: cleanString(d.siteId, 96),
+  }));
+  const deviceIds = new Set(devices.map(d => d.id));
+
+  const zones = cleanArray(obj.zones).map(z => ({
+    id: cleanId(z.id),
+    type: cleanEnum(z.type, ZONE_TYPES, 'internal'),
+    x: clampNum(z.x, -100000, 100000),
+    y: clampNum(z.y, -100000, 100000),
+    w: clampNum(z.w, 20, 100000, 200),
+    h: clampNum(z.h, 20, 100000, 140),
+    label: cleanString(z.label),
+    siteId: cleanString(z.siteId, 96),
+  }));
+
+  const links = cleanArray(obj.links).map(l => ({
+    id: cleanId(l.id),
+    fromId: cleanString(l.fromId, 96),
+    toId: cleanString(l.toId, 96),
+    type: cleanEnum(l.type, LINK_TYPES, 'ethernet'),
+    label: cleanString(l.label),
+  })).filter(l => deviceIds.has(l.fromId) && deviceIds.has(l.toId));
+
+  const sites = cleanArray(obj.sites).map(s => ({
+    id: cleanId(s.id),
+    type: cleanEnum(s.type, SITE_TYPES, 'office'),
+    name: cleanString(s.name || 'Site'),
+    lat: clampNum(s.lat, -90, 90, 0),
+    lng: clampNum(s.lng, -180, 180, 0),
+    address: cleanString(s.address),
+    notes: cleanString(s.notes, MAX_PROP_STRING),
+    color: SITE_TYPES[cleanEnum(s.type, SITE_TYPES, 'office')].color,
+  }));
+  const siteIds = new Set(sites.map(s => s.id));
+
+  const siteLinks = cleanArray(obj.siteLinks).map(sl => ({
+    id: cleanId(sl.id),
+    fromSiteId: cleanString(sl.fromSiteId, 96),
+    toSiteId: cleanString(sl.toSiteId, 96),
+    type: cleanEnum(sl.type, SITE_LINK_TYPES, 'wan'),
+    label: cleanString(sl.label),
+    bandwidth: cleanString(sl.bandwidth),
+    sla: cleanString(sl.sla),
+  })).filter(sl => siteIds.has(sl.fromSiteId) && siteIds.has(sl.toSiteId));
+
+  const cities = cleanArray(obj.cities).map(c => ({
+    id: cleanId(c.id),
+    name: cleanString(c.name || 'City'),
+    centerLat: clampNum(c.centerLat, -90, 90, 0),
+    centerLng: clampNum(c.centerLng, -180, 180, 0),
+    mapW: clampNum(c.mapW, 100, 100000, 2000),
+    mapH: clampNum(c.mapH, 100, 100000, 1400),
+    mapBackend: cleanEnum(c.mapBackend, CITY_BACKENDS, 'image'),
+    imageUrl: cleanUrl(c.imageUrl),
+    notes: cleanString(c.notes, MAX_PROP_STRING),
+  }));
+  const cityIds = new Set(cities.map(c => c.id));
+
+  const endpoints = cleanArray(obj.endpoints).map(ep => ({
+    id: cleanId(ep.id),
+    type: cleanEnum(ep.type, ENDPOINT_TYPES, 'building'),
+    label: cleanString(ep.label || 'Endpoint'),
+    x: clampNum(ep.x, -100000, 100000),
+    y: clampNum(ep.y, -100000, 100000),
+    lat: ep.lat == null ? null : clampNum(ep.lat, -90, 90, null),
+    lng: ep.lng == null ? null : clampNum(ep.lng, -180, 180, null),
+    cityId: cleanString(ep.cityId, 96),
+    siteId: cleanString(ep.siteId, 96),
+    props: cleanProps(ep.props),
+  }));
+  const endpointIds = new Set(endpoints.map(ep => ep.id));
+
+  const cityLinks = cleanArray(obj.cityLinks).map(cl => ({
+    id: cleanId(cl.id),
+    fromEpId: cleanString(cl.fromEpId, 96),
+    toEpId: cleanString(cl.toEpId, 96),
+    type: cleanEnum(cl.type, CITY_LINK_TYPES, 'fiber_buried'),
+    label: cleanString(cl.label),
+    length: cleanString(cl.length),
+  })).filter(cl => endpointIds.has(cl.fromEpId) && endpointIds.has(cl.toEpId));
+
+  const spaceAssets = cleanArray(obj.spaceAssets).map(a => ({
+    id: cleanId(a.id),
+    type: cleanEnum(a.type, SPACE_ASSET_TYPES, 'satellite_leo'),
+    label: cleanString(a.label || 'Space Asset'),
+    angle: clampNum(a.angle, -Math.PI * 20, Math.PI * 20, 0),
+    orbit: cleanString(a.orbit || SPACE_ASSET_TYPES[cleanEnum(a.type, SPACE_ASSET_TYPES, 'satellite_leo')].orbit, 32),
+    props: cleanProps(a.props),
+  }));
+  const spaceAssetIds = new Set(spaceAssets.map(a => a.id));
+
+  const spaceLinks = cleanArray(obj.spaceLinks).map(sl => ({
+    id: cleanId(sl.id),
+    fromAssetId: cleanString(sl.fromAssetId, 96),
+    toAssetId: cleanString(sl.toAssetId, 96),
+    type: cleanEnum(sl.type, SPACE_LINK_TYPES, 'laser_isl'),
+    label: cleanString(sl.label),
+  })).filter(sl => spaceAssetIds.has(sl.fromAssetId) && spaceAssetIds.has(sl.toAssetId));
+
+  return {
+    devices, links, zones, sites, siteLinks, cities, endpoints, cityLinks, spaceAssets, spaceLinks,
+    activeSiteId: siteIds.has(obj.activeSiteId) ? obj.activeSiteId : null,
+    activeCityId: cityIds.has(obj.activeCityId) ? obj.activeCityId : null,
+    viewMode: ['local', 'world', 'city', 'space'].includes(obj.viewMode) ? obj.viewMode : 'local',
+    view: cleanView(obj.view),
+    worldView: cleanView(obj.worldView),
+    cityView: cleanView(obj.cityView),
+  };
+}
+
+function sanitizeAiAction(action) {
+  if (!action || typeof action !== 'object') return null;
+  return sanitizeDiagram({
+    app: 'GreyNet',
+    devices: action.type === 'addDevice' ? [{ type: action.deviceType, label: action.label, x: action.x, y: action.y, props: action.props, siteId: action.siteId }] : [],
+    zones: action.type === 'addZone' ? [{ type: action.zoneType, x: action.x, y: action.y, w: action.w, h: action.h, label: action.label, siteId: action.siteId }] : [],
+    sites: action.type === 'addSite' ? [{ type: action.siteType, name: action.name, lat: action.lat, lng: action.lng, address: action.address, notes: action.notes }] : [],
+    endpoints: action.type === 'addEndpoint' ? [{ type: action.endpointType, label: action.label, x: action.x, y: action.y, lat: action.lat, lng: action.lng, props: action.props, cityId: action.cityId }] : [],
+    spaceAssets: action.type === 'addSpaceAsset' ? [{ type: action.assetType, label: action.label, angle: action.angle, props: action.props }] : [],
+  });
+}
+
 function loadFromJson(obj) {
   if (!obj || (obj.app !== 'GreyNet' && obj.app !== 'gREYnET')) throw new Error('Not a GreyNet diagram');
+  obj = sanitizeDiagram(obj);
   pushHistory();
   state.devices = obj.devices || [];
   state.links = obj.links || [];
@@ -4816,6 +5399,227 @@ function newDiagram() {
   renderAll();
 }
 
+/* =========================================================================
+   CONNECT EVERYTHING ENGINE
+   ========================================================================= */
+function connectEverything() {
+  pushHistory();
+  const result = {
+    local: connectLocalDevices(),
+    planet: connectPlanetSites(),
+    city: connectCityEndpoints(),
+    space: connectSpaceAssets(),
+  };
+  const total = result.local + result.planet + result.city + result.space;
+  if (total > 0) {
+    renderAll();
+    autosave();
+  } else {
+    history.past.pop();
+  }
+  alert(total
+    ? `Auto-connect added ${total} connection${total === 1 ? '' : 's'}:\n` +
+      `Local: ${result.local}\nPlanet: ${result.planet}\nCity: ${result.city}\nSpace: ${result.space}`
+    : 'Auto-connect did not find any missing likely connections.');
+}
+
+function pairKey(a, b) {
+  return [a, b].sort().join('::');
+}
+
+function dist2(a, b) {
+  const dx = Number(a.x || 0) - Number(b.x || 0);
+  const dy = Number(a.y || 0) - Number(b.y || 0);
+  return dx * dx + dy * dy;
+}
+
+function latLngDist2(a, b) {
+  const dx = Number(a.lng || a.centerLng || 0) - Number(b.lng || b.centerLng || 0);
+  const dy = Number(a.lat || a.centerLat || 0) - Number(b.lat || b.centerLat || 0);
+  return dx * dx + dy * dy;
+}
+
+function nearest(item, candidates, distanceFn = dist2) {
+  let best = null, bestD = Infinity;
+  for (const c of candidates) {
+    if (!c || c.id === item.id) continue;
+    const d = distanceFn(item, c);
+    if (d < bestD) { best = c; bestD = d; }
+  }
+  return best;
+}
+
+function addUniqueLocalLink(existing, fromId, toId, type = 'ethernet', label = '') {
+  if (!fromId || !toId || fromId === toId) return 0;
+  const key = pairKey(fromId, toId);
+  if (existing.has(key)) return 0;
+  state.links.push({ id: uid(), fromId, toId, type, label });
+  existing.add(key);
+  return 1;
+}
+
+function addUniqueSiteLink(existing, fromSiteId, toSiteId, type = 'wan', label = '') {
+  if (!fromSiteId || !toSiteId || fromSiteId === toSiteId) return 0;
+  const key = pairKey(fromSiteId, toSiteId);
+  if (existing.has(key)) return 0;
+  state.siteLinks.push({ id: uid(), fromSiteId, toSiteId, type, label, bandwidth: '', sla: '' });
+  existing.add(key);
+  return 1;
+}
+
+function addUniqueCityLink(existing, fromEpId, toEpId, type = 'fiber_buried', label = '') {
+  if (!fromEpId || !toEpId || fromEpId === toEpId) return 0;
+  const key = pairKey(fromEpId, toEpId);
+  if (existing.has(key)) return 0;
+  state.cityLinks.push({ id: uid(), fromEpId, toEpId, type, label, length: '' });
+  existing.add(key);
+  return 1;
+}
+
+function addUniqueSpaceLink(existing, fromAssetId, toAssetId, type = 'laser_isl', label = '') {
+  if (!fromAssetId || !toAssetId || fromAssetId === toAssetId) return 0;
+  const key = pairKey(fromAssetId, toAssetId);
+  if (existing.has(key)) return 0;
+  state.spaceLinks.push({ id: uid(), fromAssetId, toAssetId, type, label });
+  existing.add(key);
+  return 1;
+}
+
+function connectLocalDevices() {
+  let added = 0;
+  const existing = new Set(state.links.map(l => pairKey(l.fromId, l.toId)));
+  const siteIds = new Set(state.sites.map(s => s.id));
+  for (const siteId of siteIds) {
+    const ds = state.devices.filter(d => d.siteId === siteId);
+    if (ds.length < 2) continue;
+    const byType = (types) => ds.filter(d => types.includes(d.type));
+    const internet = byType(['internet']);
+    const cloud = byType(['cloud']);
+    const firewalls = byType(['firewall']);
+    const routers = byType(['router', 'vpn']);
+    const cores = byType(['l3switch', 'router']);
+    const switches = byType(['switch', 'l3switch']);
+    const access = switches.length ? switches : cores.length ? cores : byType(['firewall', 'router']);
+    const security = byType(['firewall', 'waf', 'ids', 'proxy', 'vpn']);
+    const servers = byType(['server', 'database', 'storage', 'loadbalancer']);
+    const clients = byType(['workstation', 'laptop', 'mobile', 'tablet', 'phone', 'printer', 'iot', 'camera', 'wap']);
+
+    for (const inet of internet) {
+      const target = nearest(inet, firewalls) || nearest(inet, routers) || nearest(inet, cores) || nearest(inet, ds.filter(d => d.id !== inet.id));
+      added += addUniqueLocalLink(existing, inet.id, target?.id, 'fiber', 'auto edge');
+    }
+    for (const fw of firewalls) {
+      const edge = nearest(fw, routers) || nearest(fw, internet);
+      const core = nearest(fw, cores.filter(d => d.id !== fw.id)) || nearest(fw, switches.filter(d => d.id !== fw.id));
+      if (edge && edge.type !== 'internet') added += addUniqueLocalLink(existing, edge.id, fw.id, 'ethernet', 'auto edge');
+      added += addUniqueLocalLink(existing, fw.id, core?.id, 'trunk', 'auto core');
+    }
+    for (const r of routers) {
+      const core = nearest(r, cores.filter(d => d.id !== r.id)) || nearest(r, switches.filter(d => d.id !== r.id));
+      added += addUniqueLocalLink(existing, r.id, core?.id, 'trunk', 'auto core');
+    }
+    for (const sw of switches.filter(d => d.type === 'switch')) {
+      const core = nearest(sw, cores.filter(d => d.id !== sw.id));
+      added += addUniqueLocalLink(existing, core?.id, sw.id, 'trunk', 'auto access');
+    }
+    for (const c of cloud) {
+      const target = nearest(c, security) || nearest(c, routers) || nearest(c, cores);
+      added += addUniqueLocalLink(existing, c.id, target?.id, 'vpn', 'auto cloud');
+    }
+    for (const s of servers) {
+      const zone = deviceZone(s);
+      const preferred = zone?.type === 'dmz'
+        ? (nearest(s, byType(['loadbalancer', 'waf']).filter(d => d.id !== s.id)) || nearest(s, firewalls) || nearest(s, access))
+        : (nearest(s, access) || nearest(s, firewalls));
+      const type = ['database', 'storage'].includes(s.type) ? 'fiber' : 'ethernet';
+      added += addUniqueLocalLink(existing, preferred?.id, s.id, type, 'auto service');
+    }
+    for (const sec of security.filter(d => d.type !== 'firewall')) {
+      const target = nearest(sec, firewalls) || nearest(sec, cores) || nearest(sec, access);
+      added += addUniqueLocalLink(existing, target?.id, sec.id, sec.type === 'vpn' ? 'vpn' : 'ethernet', 'auto security');
+    }
+    for (const c of clients) {
+      const target = c.type === 'mobile' || c.type === 'tablet'
+        ? (nearest(c, byType(['wap'])) || nearest(c, access))
+        : nearest(c, access);
+      const type = ['mobile', 'tablet'].includes(c.type) ? 'wireless' : 'ethernet';
+      added += addUniqueLocalLink(existing, target?.id, c.id, type, 'auto access');
+    }
+  }
+  return added;
+}
+
+function connectPlanetSites() {
+  if (state.sites.length < 2) return 0;
+  let added = 0;
+  const existing = new Set(state.siteLinks.map(l => pairKey(l.fromSiteId, l.toSiteId)));
+  const priority = { datacenter: 0, cloudregion: 1, noc: 2, soc: 3, office: 4, branch: 5 };
+  const sorted = [...state.sites].sort((a, b) => (priority[a.type] ?? 9) - (priority[b.type] ?? 9));
+  const connected = [sorted[0]];
+  for (const site of sorted.slice(1)) {
+    const target = nearest(site, connected, latLngDist2);
+    const type = site.type === 'cloudregion' || target?.type === 'cloudregion' ? 'vpn'
+      : site.type === 'datacenter' || target?.type === 'datacenter' ? 'mpls'
+      : site.type === 'branch' ? 'sdwan'
+      : 'wan';
+    added += addUniqueSiteLink(existing, target?.id, site.id, type, 'auto');
+    connected.push(site);
+  }
+  return added;
+}
+
+function connectCityEndpoints() {
+  let added = 0;
+  const existing = new Set(state.cityLinks.map(l => pairKey(l.fromEpId, l.toEpId)));
+  for (const city of state.cities) {
+    const eps = state.endpoints.filter(ep => ep.cityId === city.id);
+    if (eps.length < 2) continue;
+    const hubs = eps.filter(ep => ['cabinet', 'fiberjunction', 'building'].includes(ep.type));
+    const cabinets = eps.filter(ep => ep.type === 'cabinet');
+    const fiber = eps.filter(ep => ep.type === 'fiberjunction');
+    for (const ep of eps) {
+      if (ep.type === 'fiberjunction') continue;
+      let target;
+      if (ep.type === 'cabinet') target = nearest(ep, fiber) || nearest(ep, eps.filter(x => x.id !== ep.id), latLngDist2);
+      else target = nearest(ep, cabinets) || nearest(ep, hubs) || nearest(ep, eps.filter(x => x.id !== ep.id), latLngDist2);
+      const type = ep.type === 'vehiclesensor' || ep.type === 'streetlight' ? 'copper'
+        : ep.type === 'trafficcam' ? 'fiber_aerial'
+        : ep.type === 'messagesign' ? 'cellular'
+        : 'fiber_buried';
+      added += addUniqueCityLink(existing, target?.id, ep.id, type, 'auto');
+    }
+  }
+  return added;
+}
+
+function connectSpaceAssets() {
+  if (state.spaceAssets.length < 2) return 0;
+  let added = 0;
+  const existing = new Set(state.spaceLinks.map(l => pairKey(l.fromAssetId, l.toAssetId)));
+  const grounds = state.spaceAssets.filter(a => a.type === 'ground_station');
+  const sats = state.spaceAssets.filter(a => a.type !== 'ground_station');
+  for (const g of grounds) {
+    const near = nearest(g, sats, (a, b) => dist2(spaceAssetPosition(a), spaceAssetPosition(b)));
+    added += addUniqueSpaceLink(existing, g.id, near?.id, 'uplink', 'auto uplink');
+  }
+  const byOrbit = {};
+  for (const a of sats) (byOrbit[a.orbit || SPACE_ASSET_TYPES[a.type]?.orbit || 'leo'] ||= []).push(a);
+  for (const assets of Object.values(byOrbit)) {
+    if (assets.length < 2) continue;
+    assets.sort((a, b) => (a.angle || 0) - (b.angle || 0));
+    for (let i = 0; i < assets.length; i++) {
+      const a = assets[i], b = assets[(i + 1) % assets.length];
+      const type = a.orbit === 'geo' || b.orbit === 'geo' ? 'rf_isl' : 'laser_isl';
+      added += addUniqueSpaceLink(existing, a.id, b.id, type, 'auto ISL');
+    }
+  }
+  for (const relay of state.spaceAssets.filter(a => ['relay', 'satellite_geo'].includes(a.type))) {
+    const ground = nearest(relay, grounds, (a, b) => dist2(spaceAssetPosition(a), spaceAssetPosition(b)));
+    added += addUniqueSpaceLink(existing, relay.id, ground?.id, 'feeder', 'auto feeder');
+  }
+  return added;
+}
+
 // Autosave to localStorage
 function autosave() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(diagramToJson())); }
@@ -4856,9 +5660,12 @@ document.addEventListener('keydown', (e) => {
 
   if (e.key === 'Escape') {
     state.pendingConnectId = null;
+    state.activeCitySiteId = null;
+    clearCitySitePaletteSelection();
     clearOverlay();
     state.selectedIds.clear();
     setMode('select');
+    dom.svg.classList.remove('place-site');
     renderAll();
     return;
   }
@@ -4901,6 +5708,7 @@ dom.toolbar.addEventListener('click', (e) => {
     case 'redo': redo(); break;
     case 'duplicate': duplicateSelection(); break;
     case 'delete': deleteSelection(); break;
+    case 'connect-all': connectEverything(); break;
     case 'zoom-in': zoomBy(1.2); break;
     case 'zoom-out': zoomBy(1/1.2); break;
     case 'zoom-reset': resetView(); break;
@@ -4961,32 +5769,57 @@ dom.prActions.addEventListener('click', (e) => {
    SETTINGS MODAL (API keys, etc.)
    ========================================================================= */
 const SETTINGS_KEY = 'greynet:settings:v1';
-function loadSettings() {
+async function loadSettings() {
+  await migrateLegacySettings();
+  try {
+    const s = await window.greynetSecure?.getSettingsSummary?.();
+    if (!s) return;
+    state.aiProvider = s.aiProvider || 'anthropic';
+    state.hasAiKeys = { ...state.hasAiKeys, ...(s.hasAiKeys || {}) };
+    state.hasGmapsApiKey = !!s.hasGmapsApiKey;
+  } catch (e) {
+    console.warn('Unable to load secure settings', e);
+  }
+  applyKeyVisibility();
+}
+
+async function migrateLegacySettings() {
+  if (!window.greynetSecure?.saveSettings) return;
   try {
     const raw = localStorage.getItem(SETTINGS_KEY);
     if (!raw) return;
-    const s = JSON.parse(raw);
-    if (s.aiApiKeys) state.aiApiKeys = { ...state.aiApiKeys, ...s.aiApiKeys };
-    if (s.aiProvider) state.aiProvider = s.aiProvider;
-    if (s.gmapsApiKey) state.gmapsApiKey = s.gmapsApiKey;
-  } catch (e) {}
+    const legacy = JSON.parse(raw);
+    await window.greynetSecure.saveSettings({
+      aiProvider: legacy.aiProvider,
+      aiApiKeys: legacy.aiApiKeys || {},
+      gmapsApiKey: legacy.gmapsApiKey || '',
+    });
+    localStorage.removeItem(SETTINGS_KEY);
+  } catch (e) {
+    console.warn('Unable to migrate legacy settings', e);
+  }
 }
-function saveSettings() {
-  try {
-    localStorage.setItem(SETTINGS_KEY, JSON.stringify({
-      aiApiKeys: state.aiApiKeys, aiProvider: state.aiProvider, gmapsApiKey: state.gmapsApiKey,
-    }));
-  } catch (e) {}
+
+async function saveSettings(payload) {
+  const s = await window.greynetSecure.saveSettings(payload);
+  state.aiProvider = s.aiProvider || payload.aiProvider || 'anthropic';
+  state.hasAiKeys = { ...state.hasAiKeys, ...(s.hasAiKeys || {}) };
+  state.hasGmapsApiKey = !!s.hasGmapsApiKey;
   applyKeyVisibility();
+}
+
+async function getGoogleMapsApiKey() {
+  try { return (await window.greynetSecure?.getGoogleMapsApiKey?.()) || ''; }
+  catch (e) { return ''; }
 }
 
 function applyKeyVisibility() {
   // AI button: only visible if at least one AI key configured
-  const hasAi = !!(state.aiApiKeys.anthropic?.trim() || state.aiApiKeys.openai?.trim());
+  const hasAi = !!(state.hasAiKeys.anthropic || state.hasAiKeys.openai);
   const aiBtn = document.getElementById('ai-btn');
   if (aiBtn) aiBtn.hidden = !hasAi;
   // Google Maps backend option: only visible if a key is configured
-  const hasGmaps = !!(state.gmapsApiKey || '').trim();
+  const hasGmaps = !!state.hasGmapsApiKey;
   const opt = document.getElementById('city-backend-gmaps-opt');
   if (opt) opt.hidden = !hasGmaps;
   // If the active city uses gmaps but no key, fall back to image
@@ -5001,7 +5834,8 @@ function applyKeyVisibility() {
   }
 }
 
-function showSettings() {
+async function showSettings() {
+  await loadSettings();
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   overlay.innerHTML = `
@@ -5017,23 +5851,23 @@ function showSettings() {
         </div>
         <div>
           <label>Anthropic API key</label>
-          <input id="set-ai-anthropic" type="password" autocomplete="off" value="${escapeHtml(state.aiApiKeys.anthropic || '')}" placeholder="sk-ant-..."/>
-          <div class="form-help">Stored in your browser's localStorage. Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a>.</div>
+          <input id="set-ai-anthropic" type="password" autocomplete="off" value="" placeholder="${state.hasAiKeys.anthropic ? 'Saved - leave blank to keep' : 'sk-ant-...'}"/>
+          <div class="form-help">Stored encrypted by the desktop app. Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a>.</div>
         </div>
         <div>
           <label>OpenAI API key</label>
-          <input id="set-ai-openai" type="password" autocomplete="off" value="${escapeHtml(state.aiApiKeys.openai || '')}" placeholder="sk-..."/>
-          <div class="form-help">Stored locally. Get a key at <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com</a>.</div>
+          <input id="set-ai-openai" type="password" autocomplete="off" value="" placeholder="${state.hasAiKeys.openai ? 'Saved - leave blank to keep' : 'sk-...'}"/>
+          <div class="form-help">Stored encrypted by the desktop app. Get a key at <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com</a>.</div>
         </div>
         <div>
           <label>Google Maps API key (optional — for the City view Google backend)</label>
-          <input id="set-gmaps" type="password" autocomplete="off" value="${escapeHtml(state.gmapsApiKey || '')}" placeholder="AIza..."/>
+          <input id="set-gmaps" type="password" autocomplete="off" value="" placeholder="${state.hasGmapsApiKey ? 'Saved - leave blank to keep' : 'AIza...'}"/>
           <div class="form-help">Required only if you want Google Maps as a city backdrop. OSM works without a key.</div>
         </div>
       </div>
       <p class="form-help" style="margin-top:14px">
-        <b>Security note:</b> API keys are stored in your browser's localStorage. They never leave your device except when used to call the respective provider's API.
-        Don't enter production keys in a shared browser.
+        <b>Security note:</b> API keys are stored by the Electron main process, not renderer localStorage.
+        Leave a saved key field blank to keep it, or type <code>clear</code> to remove it.
       </p>
       <div class="modal-actions">
         <button data-close>Cancel</button>
@@ -5044,12 +5878,20 @@ function showSettings() {
     if (e.target === overlay || e.target.hasAttribute('data-close')) overlay.remove();
   });
   document.body.appendChild(overlay);
-  overlay.querySelector('#set-save').addEventListener('click', () => {
-    state.aiProvider = overlay.querySelector('#set-ai-provider').value;
-    state.aiApiKeys.anthropic = overlay.querySelector('#set-ai-anthropic').value.trim();
-    state.aiApiKeys.openai    = overlay.querySelector('#set-ai-openai').value.trim();
-    state.gmapsApiKey         = overlay.querySelector('#set-gmaps').value.trim();
-    saveSettings();
+  overlay.querySelector('#set-save').addEventListener('click', async () => {
+    const normalizeSecret = (value) => {
+      const v = value.trim();
+      if (!v) return undefined;
+      return v.toLowerCase() === 'clear' ? '' : v;
+    };
+    await saveSettings({
+      aiProvider: overlay.querySelector('#set-ai-provider').value,
+      aiApiKeys: {
+        anthropic: normalizeSecret(overlay.querySelector('#set-ai-anthropic').value),
+        openai: normalizeSecret(overlay.querySelector('#set-ai-openai').value),
+      },
+      gmapsApiKey: normalizeSecret(overlay.querySelector('#set-gmaps').value),
+    });
     overlay.remove();
   });
 }
@@ -5062,11 +5904,11 @@ function showAiAssistant() {
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
   const provider = state.aiProvider;
-  const hasKey = !!(state.aiApiKeys[provider] || '').trim();
+  const hasKey = !!state.hasAiKeys[provider];
   overlay.innerHTML = `
     <div class="modal ai-modal">
       <div class="ai-head">
-        <h3>🤖 Ask AI</h3>
+        <h3>Ask AI</h3>
         <div style="display:flex;gap:6px;align-items:center;font-size:11px;color:var(--text-dim)">
           Provider: <b>${provider === 'anthropic' ? 'Claude' : 'OpenAI'}</b>
           <button class="tb-btn" data-open-settings style="padding:2px 8px;font-size:10px">change</button>
@@ -5171,8 +6013,7 @@ CONVENTIONS:
 
 async function callAi(userPrompt) {
   const provider = state.aiProvider;
-  const key = (state.aiApiKeys[provider] || '').trim();
-  if (!key) throw new Error('No API key configured for ' + provider);
+  if (!state.hasAiKeys[provider]) throw new Error('No API key configured for ' + provider);
   // Provide current state as context to the model
   const ctx = {
     sites: state.sites.map(s => ({id: s.id, name: s.name, type: s.type})),
@@ -5186,48 +6027,8 @@ async function callAi(userPrompt) {
   };
   const fullPrompt = `Current diagram context:\n${JSON.stringify(ctx, null, 2)}\n\nUser request:\n${userPrompt}\n\nRespond ONLY with the JSON object as described in your instructions.`;
 
-  let resp, json;
-  if (provider === 'anthropic') {
-    resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'x-api-key': key,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model: 'claude-opus-4-7',
-        max_tokens: 4096,
-        system: AI_SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: fullPrompt }],
-      }),
-    });
-    if (!resp.ok) throw new Error(`Anthropic API error ${resp.status}: ${await resp.text()}`);
-    json = await resp.json();
-    const text = json.content?.[0]?.text || '';
-    return parseAiJson(text);
-  } else {
-    resp = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        'authorization': 'Bearer ' + key,
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o',
-        messages: [
-          { role: 'system', content: AI_SYSTEM_PROMPT },
-          { role: 'user', content: fullPrompt },
-        ],
-        response_format: { type: 'json_object' },
-      }),
-    });
-    if (!resp.ok) throw new Error(`OpenAI API error ${resp.status}: ${await resp.text()}`);
-    json = await resp.json();
-    const text = json.choices?.[0]?.message?.content || '';
-    return parseAiJson(text);
-  }
+  const result = await window.greynetSecure.callAi({ system: AI_SYSTEM_PROMPT, prompt: fullPrompt });
+  return parseAiJson(result.text || '');
 }
 
 function parseAiJson(text) {
@@ -5250,72 +6051,75 @@ function applyAiActions(result) {
   pushHistory();
   const labelMap = {};   // user-facing label → real id, for cross-references within this batch
   let added = 0;
-  for (const a of result.actions) {
+  for (const a of result.actions.slice(0, 100)) {
     try {
+      const cleaned = sanitizeAiAction(a);
       if (a.type === 'addDevice') {
+        const d0 = cleaned.devices[0]; if (!d0) continue;
         const id = uid();
         state.devices.push({
-          id, type: a.deviceType,
-          x: snap(a.x || 200), y: snap(a.y || 200),
-          label: a.label || (DEVICE_TYPES[a.deviceType]?.label || 'Device'),
-          props: { ...(DEVICE_TYPES[a.deviceType]?.defaultProps || {}), ...(a.props || {}) },
-          siteId: a.siteId || state.activeSiteId,
+          id, type: d0.type,
+          x: snap(d0.x || 200), y: snap(d0.y || 200),
+          label: d0.label || (DEVICE_TYPES[d0.type]?.label || 'Device'),
+          props: { ...(DEVICE_TYPES[d0.type]?.defaultProps || {}), ...d0.props },
+          siteId: d0.siteId || state.activeSiteId,
         });
-        labelMap[a.label] = id;
+        labelMap[d0.label] = id;
         added++;
       } else if (a.type === 'addLink') {
-        const f = labelMap[a.fromId] || a.fromId, t = labelMap[a.toId] || a.toId;
+        const f = labelMap[cleanString(a.fromId, 96)] || cleanString(a.fromId, 96);
+        const t = labelMap[cleanString(a.toId, 96)] || cleanString(a.toId, 96);
         if (deviceById(f) && deviceById(t)) {
-          state.links.push({ id: uid(), fromId: f, toId: t, type: a.linkType || 'ethernet', label: a.label || '' });
+          state.links.push({ id: uid(), fromId: f, toId: t, type: cleanEnum(a.linkType, LINK_TYPES, 'ethernet'), label: cleanString(a.label) });
           added++;
         }
       } else if (a.type === 'addZone') {
-        state.zones.push({
-          id: uid(), type: a.zoneType, x: snap(a.x), y: snap(a.y),
-          w: snap(a.w), h: snap(a.h), label: a.label || '',
-          siteId: a.siteId || state.activeSiteId,
-        });
+        const z0 = cleaned.zones[0]; if (!z0) continue;
+        state.zones.push({ ...z0, id: uid(), x: snap(z0.x), y: snap(z0.y), w: snap(z0.w), h: snap(z0.h), siteId: z0.siteId || state.activeSiteId });
         added++;
       } else if (a.type === 'addSite') {
-        const def = SITE_TYPES[a.siteType];
+        const s0 = cleaned.sites[0]; if (!s0) continue;
+        const def = SITE_TYPES[s0.type];
         const id = uid();
         state.sites.push({
-          id, type: a.siteType, name: a.name, lat: a.lat, lng: a.lng,
-          address: a.address || '', notes: a.notes || '', color: def?.color || '#5fb3ff',
+          id, type: s0.type, name: s0.name, lat: s0.lat, lng: s0.lng,
+          address: s0.address || '', notes: s0.notes || '', color: def?.color || '#5fb3ff',
         });
-        labelMap[a.name] = id;
+        labelMap[s0.name] = id;
         added++;
       } else if (a.type === 'addEndpoint') {
-        const def = ENDPOINT_TYPES[a.endpointType];
+        const ep0 = cleaned.endpoints[0]; if (!ep0) continue;
+        const def = ENDPOINT_TYPES[ep0.type];
         const id = uid();
         state.endpoints.push({
-          id, type: a.endpointType, label: a.label,
-          x: a.x || 0, y: a.y || 0, lat: a.lat || null, lng: a.lng || null,
-          cityId: a.cityId || state.activeCityId,
-          props: { ...(def?.defaultProps || {}), ...(a.props || {}) },
+          id, type: ep0.type, label: ep0.label,
+          x: ep0.x || 0, y: ep0.y || 0, lat: ep0.lat || null, lng: ep0.lng || null,
+          cityId: ep0.cityId || state.activeCityId,
+          props: { ...(def?.defaultProps || {}), ...ep0.props },
         });
-        labelMap[a.label] = id;
+        labelMap[ep0.label] = id;
         added++;
       } else if (a.type === 'addCityLink') {
-        const f = labelMap[a.fromLabel], t = labelMap[a.toLabel];
+        const f = labelMap[cleanString(a.fromLabel, 96)], t = labelMap[cleanString(a.toLabel, 96)];
         if (f && t) {
-          state.cityLinks.push({ id: uid(), fromEpId: f, toEpId: t, type: a.linkType, label: a.label || '', length: a.length || '' });
+          state.cityLinks.push({ id: uid(), fromEpId: f, toEpId: t, type: cleanEnum(a.linkType, CITY_LINK_TYPES, 'fiber_buried'), label: cleanString(a.label), length: cleanString(a.length) });
           added++;
         }
       } else if (a.type === 'addSpaceAsset') {
-        const def = SPACE_ASSET_TYPES[a.assetType];
+        const sp0 = cleaned.spaceAssets[0]; if (!sp0) continue;
+        const def = SPACE_ASSET_TYPES[sp0.type];
         const id = uid();
         state.spaceAssets.push({
-          id, type: a.assetType, label: a.label,
-          angle: a.angle != null ? a.angle : 0, orbit: def?.orbit,
-          props: a.props || {},
+          id, type: sp0.type, label: sp0.label,
+          angle: sp0.angle != null ? sp0.angle : 0, orbit: def?.orbit,
+          props: sp0.props || {},
         });
-        labelMap[a.label] = id;
+        labelMap[sp0.label] = id;
         added++;
       } else if (a.type === 'addSpaceLink') {
-        const f = labelMap[a.fromLabel], t = labelMap[a.toLabel];
+        const f = labelMap[cleanString(a.fromLabel, 96)], t = labelMap[cleanString(a.toLabel, 96)];
         if (f && t) {
-          state.spaceLinks.push({ id: uid(), fromAssetId: f, toAssetId: t, type: a.linkType, label: a.label || '' });
+          state.spaceLinks.push({ id: uid(), fromAssetId: f, toAssetId: t, type: cleanEnum(a.linkType, SPACE_LINK_TYPES, 'laser_isl'), label: cleanString(a.label) });
           added++;
         }
       }
@@ -6172,8 +6976,8 @@ function openOrDownloadHtml(html, filename) {
 /* =========================================================================
    INIT
    ========================================================================= */
-function init() {
-  loadSettings();
+async function init() {
+  await loadSettings();
   applyKeyVisibility();
   renderPalette();
   const restored = tryRestoreAutosave();
@@ -6252,7 +7056,7 @@ function seedExample() {
     id: uid(), name: 'Manhattan — Midtown',
     centerLat: 40.7549, centerLng: -73.9840,
     mapW: 2000, mapH: 1400,
-    mapBackend: 'image',    // offline-first; switch to "osm" in the city-bar if online
+    mapBackend: 'osm',      // streets-first; switch to "Image" in the city-bar for offline use
     imageUrl: '',
     notes: 'Example city with traffic infrastructure. Pick a backend in the city-bar above.',
   };
@@ -6331,7 +7135,10 @@ function seedExample() {
   ];
 }
 
-init();
+init().catch(err => {
+  console.error('GreyNet failed to initialize', err);
+  alert('GreyNet failed to initialize: ' + (err.message || String(err)));
+});
 </script>
 </body>
 </html>
