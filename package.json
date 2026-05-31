@@ -1,0 +1,53 @@
+{
+  "name": "greynet",
+  "version": "1.0.0",
+  "description": "GreyNet — offline network designer (CAD-style) with City / World / Space views.",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "build": "electron-builder --win --x64 --publish=never",
+    "build:portable": "electron-builder --win portable --x64 --publish=never",
+    "build:installer": "electron-builder --win nsis --x64 --publish=never"
+  },
+  "author": "GreyNet",
+  "license": "UNLICENSED",
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.greynet.designer",
+    "productName": "GreyNet",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "index.html",
+      "worldmap.png",
+      "worldmap.jpg",
+      "worldmap.webp",
+      "package.json"
+    ],
+    "extraResources": [],
+    "win": {
+      "target": [
+        { "target": "portable", "arch": ["x64"] },
+        { "target": "nsis", "arch": ["x64"] }
+      ]
+    },
+    "portable": {
+      "artifactName": "GreyNet-${version}-portable.exe"
+    },
+    "nsis": {
+      "artifactName": "GreyNet-${version}-setup.exe",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "GreyNet"
+    }
+  }
+}
