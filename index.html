@@ -3104,12 +3104,23 @@ function renderEndpointProperties(ep) {
       `<button type="button" data-enter-linked-site style="margin-top:8px;padding:6px 10px;background:var(--accent);color:var(--bg-0);border:none;border-radius:3px;font-size:11px;font-weight:600;cursor:pointer;width:100%">Open local site →</button>` +
       `</div>`;
   }
-  html += `<div class="pr-field"><label>Label</label>` +
-    `<input data-key="label" type="text" value="${escapeHtml(ep.label || '')}"/></div>`;
+  // When this endpoint is linked to a site, the label and address mirror the
+  // site and are read-only here — edit them on the site instead, which keeps
+  // both views in sync.
+  if (linkedSite) {
+    html += `<div class="pr-field"><label>Label <span style="color:var(--text-faint);font-weight:400">(from linked site)</span></label>` +
+      `<input data-key="label" type="text" value="${escapeHtml(ep.label || '')}" disabled/></div>`;
+  } else {
+    html += `<div class="pr-field"><label>Label</label>` +
+      `<input data-key="label" type="text" value="${escapeHtml(ep.label || '')}"/></div>`;
+  }
   // Type-specific fields
   for (const [k, v] of Object.entries(props)) {
-    html += `<div class="pr-field"><label>${escapeHtml(k.charAt(0).toUpperCase() + k.slice(1))}</label>` +
-      `<input data-key="${escapeHtml(k)}" data-prop="1" type="text" value="${escapeHtml(v)}"/></div>`;
+    const lockedByLinkedSite = linkedSite && (k === 'address' || k === 'notes');
+    const lockNote = lockedByLinkedSite
+      ? ' <span style="color:var(--text-faint);font-weight:400">(from linked site)</span>' : '';
+    html += `<div class="pr-field"><label>${escapeHtml(k.charAt(0).toUpperCase() + k.slice(1))}${lockNote}</label>` +
+      `<input data-key="${escapeHtml(k)}" data-prop="1" type="text" value="${escapeHtml(v)}"${lockedByLinkedSite ? ' disabled' : ''}/></div>`;
   }
   if (ep.lat != null) {
     html += `<div class="pr-field-row">` +
@@ -3200,7 +3211,10 @@ function renderCityProperties(c) {
 function renderSiteProperties(s) {
   const def = SITE_TYPES[s.type];
   dom.prType.textContent = 'Site';
-  const deviceCount = state.devices.filter(d => d.siteId === s.id).length;
+  const deviceCount  = state.devices.filter(d => d.siteId === s.id).length;
+  const linkedEps    = endpointsLinkedToSite(s.id);
+  const linkedCities = [...new Set(linkedEps.map(ep => ep.cityId).filter(Boolean))]
+    .map(cid => cityById(cid)).filter(Boolean);
   let html = '';
   html += `<div class="pr-field"><label>Site name</label>` +
     `<input data-key="name" type="text" value="${escapeHtml(s.name || '')}"/></div>`;
@@ -3221,6 +3235,20 @@ function renderSiteProperties(s) {
     `<div style="font-size:12px;color:var(--text)">${deviceCount} device${deviceCount === 1 ? '' : 's'}</div>` +
     `<button type="button" data-enter-site style="margin-top:8px;padding:6px 10px;background:var(--accent);color:var(--bg-0);border:none;border-radius:3px;font-size:11px;font-weight:600;cursor:pointer;width:100%">Enter site (Local view) →</button>` +
     `</div>`;
+  // Reverse navigation: if this site has been placed as a "Built site"
+  // endpoint on a city map, offer a button per city that jumps there and
+  // selects the endpoint.
+  if (linkedCities.length) {
+    html += `<div class="pr-field" style="border-top:1px solid var(--border);padding-top:10px;margin-top:14px">` +
+      `<label>Placed on city map${linkedCities.length === 1 ? '' : 's'}</label>`;
+    for (const c of linkedCities) {
+      const ep = linkedEps.find(e => e.cityId === c.id);
+      html += `<button type="button" data-show-on-city="${c.id}" data-ep-id="${ep ? ep.id : ''}" ` +
+        `style="margin-top:6px;padding:6px 10px;background:var(--bg-2);color:var(--text);border:1px solid var(--border-2);border-radius:3px;font-size:11px;cursor:pointer;width:100%;text-align:left">` +
+        `→ Show on ${escapeHtml(c.name)} city map</button>`;
+    }
+    html += `</div>`;
+  }
 
   dom.prBody.innerHTML = html;
   dom.prBody.querySelectorAll('input, select, textarea').forEach(inp => {
@@ -3228,10 +3256,20 @@ function renderSiteProperties(s) {
       pushHistory();
       const key = inp.getAttribute('data-key');
       s[key] = inp.getAttribute('data-num') ? Number(inp.value) || 0 : inp.value;
+      // Push name / address / type / coord changes to linked city endpoints
+      // so the City view immediately reflects the edit.
+      propagateSiteChange(s.id);
       renderAll();
+      syncLeafletMarkers();
     });
   });
   dom.prBody.querySelector('[data-enter-site]')?.addEventListener('click', () => setActiveSite(s.id));
+  dom.prBody.querySelectorAll('[data-show-on-city]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      setActiveCity(btn.getAttribute('data-show-on-city'),
+        { selectEndpointId: btn.getAttribute('data-ep-id') });
+    });
+  });
 }
 
 function renderSiteLinkProperties(sl) {
@@ -4582,15 +4620,98 @@ function fitWorld() {
   updateWorldTransform();
 }
 
+// === CROSS-VIEW SYNC HELPERS ===
+//
+// The same network can be referenced from several views: a Site appears on
+// the Planet view, can be placed as a "linked" endpoint on a City map, and
+// owns Devices in the Local view. These helpers keep all views consistent
+// when a Site (or City) is edited or removed, so changes the user makes in
+// one view propagate to the others automatically.
+
+// Find all city endpoints that are linked to a given site.
+function endpointsLinkedToSite(siteId) {
+  return state.endpoints.filter(ep => ep.siteId === siteId);
+}
+
+// Push a site's current state down to every linked city endpoint so the
+// label, address, and notes stay in lock-step with the Planet/Local view.
+// Safe to call after any site-property mutation.
+function propagateSiteChange(siteId) {
+  const site = siteById(siteId);
+  if (!site) return;
+  for (const ep of endpointsLinkedToSite(siteId)) {
+    ep.label = site.name;
+    ep.props = ep.props || {};
+    if (site.address != null) ep.props.address = site.address;
+    // Preserve user-edited endpoint notes unless the original is the
+    // auto-generated "Linked local site:" line, in which case re-sync it.
+    if (!ep.props.notes || /^Linked local site:/.test(ep.props.notes)) {
+      ep.props.notes = `Linked local site: ${site.name}`;
+    }
+  }
+}
+
+// Push a city's current state down to dependent things (right now: nothing
+// beyond a hook for future use). Cheap no-op; call it freely.
+function propagateCityChange(cityId) {
+  const _city = cityById(cityId);
+  if (!_city) return;
+  // Reserved for future cross-references (e.g., planet pins that mirror a
+  // city's center coords).
+}
+
+// Cascade-delete a site: remove its devices, zones, links, inter-site links,
+// AND any linked city endpoints (plus their city links). Without this the
+// city view would show "Linked local site" pointing at a phantom site.
+function cascadeSiteDeletion(siteIds) {
+  if (!(siteIds instanceof Set)) siteIds = new Set(siteIds);
+  if (siteIds.size === 0) return;
+  // Endpoints linked to a deleted site
+  const removedEndpointIds = new Set(
+    state.endpoints.filter(ep => siteIds.has(ep.siteId)).map(ep => ep.id)
+  );
+  state.endpoints   = state.endpoints.filter(ep => !removedEndpointIds.has(ep.id));
+  state.cityLinks   = state.cityLinks.filter(cl =>
+    !removedEndpointIds.has(cl.fromEpId) && !removedEndpointIds.has(cl.toEpId));
+  state.devices     = state.devices.filter(d => !siteIds.has(d.siteId));
+  state.zones       = state.zones.filter(z => !siteIds.has(z.siteId));
+  state.links       = state.links.filter(l => {
+    const a = deviceById(l.fromId), b = deviceById(l.toId);
+    return a && b;   // surviving devices on both ends
+  });
+  state.siteLinks   = state.siteLinks.filter(sl =>
+    !siteIds.has(sl.fromSiteId) && !siteIds.has(sl.toSiteId));
+}
+
 function setActiveSite(siteId) {
   state.activeSiteId = siteId;
-  // if in world view, switch to local
-  if (state.viewMode === 'world') setViewMode('local');
   state.selectedIds.clear();
-  renderAll();
+  // Always switch to local view when opening a site, regardless of which
+  // view we came from (planet/city/space/deepspace). setViewMode itself
+  // calls renderAll() for us, so don't double-render.
+  if (state.viewMode !== 'local') {
+    setViewMode('local');
+  } else {
+    renderAll();
+  }
   // auto-fit if site has devices
   const hasDevices = state.devices.some(d => d.siteId === siteId);
   if (hasDevices) requestAnimationFrame(fitView);
+}
+
+// Symmetric helper: switch to City view of a given city and (optionally)
+// select an endpoint there. Used by reverse navigation buttons.
+function setActiveCity(cityId, opts) {
+  if (!cityById(cityId)) return;
+  state.activeCityId = cityId;
+  // setViewMode itself clears selectedIds, so add the requested selection
+  // AFTER the mode switch and re-render once more.
+  if (state.viewMode !== 'city') setViewMode('city');
+  state.selectedIds.clear();
+  if (opts && opts.selectEndpointId) state.selectedIds.add(opts.selectEndpointId);
+  syncTileMap();
+  renderAll();
+  requestAnimationFrame(fitCity);
 }
 
 function updateSiteBar() {
@@ -4817,17 +4938,21 @@ function deleteSelection() {
   const ids = state.selectedIds;
   const deletedSiteIds = new Set([...ids].filter(id => siteById(id)));
   const deletedCityIds = new Set([...ids].filter(id => cityById(id)));
-  state.devices = state.devices.filter(d => !ids.has(d.id) && !deletedSiteIds.has(d.siteId));
+  // First handle direct deletions of non-site / non-city items.
+  state.devices = state.devices.filter(d => !ids.has(d.id));
   state.links = state.links.filter(l => !ids.has(l.id) && !ids.has(l.fromId) && !ids.has(l.toId));
-  state.zones = state.zones.filter(z => !ids.has(z.id) && !deletedSiteIds.has(z.siteId));
+  state.zones = state.zones.filter(z => !ids.has(z.id));
   state.sites = state.sites.filter(s => !ids.has(s.id));
-  state.siteLinks = state.siteLinks.filter(sl => !ids.has(sl.id)
-    && !deletedSiteIds.has(sl.fromSiteId) && !deletedSiteIds.has(sl.toSiteId));
-  // Cascade city deletes
+  state.siteLinks = state.siteLinks.filter(sl => !ids.has(sl.id));
+  // Cascade the site deletions across views (devices / zones / links / inter-site
+  // links / linked city endpoints / city links). Keeps the network coherent.
+  if (deletedSiteIds.size) cascadeSiteDeletion(deletedSiteIds);
+  // City-level deletes
   state.endpoints = state.endpoints.filter(ep => !ids.has(ep.id) && !deletedCityIds.has(ep.cityId));
   state.cityLinks = state.cityLinks.filter(cl => !ids.has(cl.id)
     && endpointById(cl.fromEpId) && endpointById(cl.toEpId));
   state.cities = state.cities.filter(c => !ids.has(c.id));
+  // Space-level deletes
   state.spaceAssets = state.spaceAssets.filter(a => !ids.has(a.id));
   state.spaceLinks = state.spaceLinks.filter(l => !ids.has(l.id)
     && spaceAssetById(l.fromAssetId) && spaceAssetById(l.toAssetId));
