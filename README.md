@@ -7,7 +7,7 @@ Offline network designer (CAD-style) for laying out infrastructure across four s
 - **Local** — devices, security zones, and links inside one site (routers, switches, firewalls, servers, endpoints, etc.).
 - **City** — endpoints placed on a real map. Backends: OpenStreetMap, Google Maps (BYO API key), or an offline image.
 - **Planet** — sites pinned by lat/lng on a world map with inter-site links. Optional live overlay: city lights, plane tracks, satellite passes.
-- **Space** — orbital assets (LEO / MEO / GEO / deep space) with coverage cones and inter-satellite links.
+- **Orbit** — orbital assets (LEO / MEO / GEO / deep space) with coverage cones and inter-satellite links.
 - **Deep Space** — interplanetary **Link Budget Studio**. Heliocentric solar-system view with live planet positions (simplified Standish ephemeris). Pick a transmit station (DSN 70m, Estrack 35m, Starship LEO, Mars relay, Lunar Gateway), pick a target (Mercury…Neptune, Moon, JWST, Voyager 1), slide TX power / antenna gain / frequency / data rate / noise temp / modulation+FEC, and watch FSPL, C/N₀, achieved vs required Eb/N₀, **link margin**, Shannon capacity bound, and one-way light delay update live. Built-in scenario presets: DSN ↔ MRO, Voyager 1 today, Apollo S-band, JWST Ka, hypothetical Mars Starlink, New Horizons to Pluto orbit.
 
 Each view has its own palette; switch from the toolbar.

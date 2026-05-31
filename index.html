@@ -1209,7 +1209,7 @@
       <button class="tb-btn seg-btn" data-set-view="local"     title="Local network view">Local</button>
       <button class="tb-btn seg-btn" data-set-view="city"      title="City / metro view">City</button>
       <button class="tb-btn seg-btn" data-set-view="world"     title="Planet sites view">Planet</button>
-      <button class="tb-btn seg-btn" data-set-view="space"     title="Space network view">Space</button>
+      <button class="tb-btn seg-btn" data-set-view="space"     title="Orbital network view">Orbit</button>
       <button class="tb-btn seg-btn" data-set-view="deepspace" title="Interplanetary link budget studio">Deep Space</button>
       <button class="tb-btn live-on" data-action="toggle-live" id="live-toggle-btn" title="City lights, planes, satellites (planet view only)">Live</button>
     </div>
@@ -1954,7 +1954,7 @@ function renderPalette() {
   // === SPACE ASSETS (space mode only) ===
   html.push(`<div class="pal-space">`);
   html.push(`<div class="pal-section">`);
-  html.push(`<div class="pal-header"><span>Space Assets</span><span class="chev">▾</span></div>`);
+  html.push(`<div class="pal-header"><span>Orbit Assets</span><span class="chev">▾</span></div>`);
   html.push(`<div class="pal-grid">`);
   for (const [type, def] of Object.entries(SPACE_ASSET_TYPES)) {
     html.push(
@@ -1966,7 +1966,7 @@ function renderPalette() {
   }
   html.push(`</div></div>`);
   html.push(`<div class="pal-section">`);
-  html.push(`<div class="pal-header"><span>Space Link Type</span><span class="chev">▾</span></div>`);
+  html.push(`<div class="pal-header"><span>Orbit Link Type</span><span class="chev">▾</span></div>`);
   html.push(`<div class="pal-links">`);
   for (const [type, def] of Object.entries(SPACE_LINK_TYPES)) {
     html.push(
@@ -3069,7 +3069,7 @@ function renderSpaceAssetProperties(a) {
 }
 
 function renderSpaceLinkProperties(sl) {
-  dom.prType.textContent = 'Space Link';
+  dom.prType.textContent = 'Orbit Link';
   const a = spaceAssetById(sl.fromAssetId), b = spaceAssetById(sl.toAssetId);
   let html = '';
   html += `<div class="pr-field"><label>Label</label><input data-key="label" type="text" value="${escapeHtml(sl.label || '')}"/></div>`;
@@ -4738,8 +4738,8 @@ function updateSiteBar() {
           ? 'Connect mode — click two endpoints to link them with the selected cable type.'
           : 'Pick a backend, place endpoints, connect them.');
   } else if (mode === 'space') {
-    dom.sbIcon.textContent = 'SPACE';
-    dom.sbContextLabel.textContent = 'Space network';
+    dom.sbIcon.textContent = 'ORBIT';
+    dom.sbContextLabel.textContent = 'Orbit network';
     dom.sbActiveSiteName.textContent = `${state.spaceAssets.length} asset${state.spaceAssets.length === 1 ? '' : 's'}`;
     dom.sbModeHint.textContent = state.activeSpaceAssetType
       ? `Click on the orbital ring to place a ${SPACE_ASSET_TYPES[state.activeSpaceAssetType].label}.`
@@ -5363,7 +5363,7 @@ function sanitizeDiagram(obj) {
   const spaceAssets = cleanArray(obj.spaceAssets).map(a => ({
     id: cleanId(a.id),
     type: cleanEnum(a.type, SPACE_ASSET_TYPES, 'satellite_leo'),
-    label: cleanString(a.label || 'Space Asset'),
+    label: cleanString(a.label || 'Orbit Asset'),
     angle: clampNum(a.angle, -Math.PI * 20, Math.PI * 20, 0),
     orbit: cleanString(a.orbit || SPACE_ASSET_TYPES[cleanEnum(a.type, SPACE_ASSET_TYPES, 'satellite_leo')].orbit, 32),
     props: cleanProps(a.props),
@@ -5740,7 +5740,7 @@ function connectEverything() {
   }
   alert(total
     ? `Auto-connect added ${total} connection${total === 1 ? '' : 's'}:\n` +
-      `Local: ${result.local}\nPlanet: ${result.planet}\nCity: ${result.city}\nSpace: ${result.space}`
+      `Local: ${result.local}\nPlanet: ${result.planet}\nCity: ${result.city}\nOrbit: ${result.space}`
     : 'Auto-connect did not find any missing likely connections.');
 }
 
