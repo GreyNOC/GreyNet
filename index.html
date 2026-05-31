@@ -603,6 +603,37 @@
     paint-order: stroke; stroke: var(--bg-0); stroke-width: 3; }
   @keyframes space-link-pulse { to { stroke-dashoffset: -26; } }
 
+  /* === 3D EARTH (Orbit view) === */
+  .earth3d-halo { fill: none; stroke: rgba(95,179,255,0.10); stroke-width: 50;
+    filter: url(#soft-glow); pointer-events: none; }
+  .earth3d-atmos { fill: url(#earth3d-atmos); pointer-events: none; }
+  .earth3d-ocean { fill: url(#earth3d-ocean); }
+  .earth3d-land  { fill: url(#earth3d-land); fill-opacity: 0.95;
+    stroke: rgba(0,0,0,0.18); stroke-width: 0.4; }
+  .earth3d-clouds { fill: rgba(255,255,255,0.32); stroke: rgba(255,255,255,0.08);
+    stroke-width: 0.4; pointer-events: none; }
+  .earth3d-night { fill: url(#earth3d-terminator); pointer-events: none; }
+  .earth3d-limb  { fill: url(#earth3d-limb-shade); pointer-events: none; }
+  .earth3d-specular { fill: url(#earth3d-specular); pointer-events: none; }
+  .earth3d-citylight { fill: #ffd166; filter: url(#earth3d-citylight); pointer-events: none; }
+
+  /* === ORBITS (3D-projected, front/back arc split) === */
+  .orbit3d-back   { fill: none; stroke-width: 1.2; stroke-dasharray: 4 8;
+    opacity: 0.32; pointer-events: none; }
+  .orbit3d-front  { fill: none; stroke-width: 1.6; opacity: 0.85; pointer-events: none; }
+  .orbit3d-back.leo  { stroke: #6fcf97; }
+  .orbit3d-back.iss  { stroke: #85c3ff; }
+  .orbit3d-back.meo  { stroke: #f5c84c; }
+  .orbit3d-back.geo  { stroke: #ff8c42; }
+  .orbit3d-back.deep { stroke: #b388eb; }
+  .orbit3d-front.leo  { stroke: #6fcf97; }
+  .orbit3d-front.iss  { stroke: #85c3ff; }
+  .orbit3d-front.meo  { stroke: #f5c84c; }
+  .orbit3d-front.geo  { stroke: #ff8c42; }
+  .orbit3d-front.deep { stroke: #b388eb; }
+  .orbit3d-label { fill: var(--text-faint); font-size: 11px;
+    font-family: "SF Mono", Menlo, monospace; text-anchor: middle; pointer-events: none; }
+
   /* === DEEP SPACE VIEW === */
   #canvas.deepspace-mode #grid-bg,
   #canvas.deepspace-mode #worldmap-layer,
@@ -1355,6 +1386,57 @@
           <stop offset="58%" stop-color="#020817" stop-opacity="0.62"/>
           <stop offset="100%" stop-color="#061a3d" stop-opacity="0"/>
         </radialGradient>
+        <!-- === 3D EARTH (Orbit view) === -->
+        <!-- Ocean body: deeper toward limb for spherical illusion -->
+        <radialGradient id="earth3d-ocean" cx="38%" cy="32%" r="78%">
+          <stop offset="0%"   stop-color="#3d8fd8"/>
+          <stop offset="35%"  stop-color="#1f5894"/>
+          <stop offset="70%"  stop-color="#0b2c54"/>
+          <stop offset="100%" stop-color="#03102a"/>
+        </radialGradient>
+        <!-- Sun-side specular highlight -->
+        <radialGradient id="earth3d-specular" cx="32%" cy="26%" r="42%">
+          <stop offset="0%"   stop-color="#cfe9ff" stop-opacity="0.55"/>
+          <stop offset="55%"  stop-color="#7fb5e8" stop-opacity="0.16"/>
+          <stop offset="100%" stop-color="#7fb5e8" stop-opacity="0"/>
+        </radialGradient>
+        <!-- Day-night terminator: sweeps from sun-facing to anti-sun -->
+        <linearGradient id="earth3d-terminator" x1="0%" y1="0%" x2="100%" y2="100%">
+          <stop offset="0%"   stop-color="#000000" stop-opacity="0"/>
+          <stop offset="50%"  stop-color="#000000" stop-opacity="0"/>
+          <stop offset="62%"  stop-color="#020610" stop-opacity="0.65"/>
+          <stop offset="100%" stop-color="#01040c" stop-opacity="0.88"/>
+        </linearGradient>
+        <!-- Land tint that varies with latitude (cool poles, warm tropics) -->
+        <linearGradient id="earth3d-land" x1="50%" y1="0%" x2="50%" y2="100%">
+          <stop offset="0%"   stop-color="#8fbcdf"/>
+          <stop offset="25%"  stop-color="#3a7a4f"/>
+          <stop offset="55%"  stop-color="#5a8f4e"/>
+          <stop offset="85%"  stop-color="#a48655"/>
+          <stop offset="100%" stop-color="#cad7e2"/>
+        </linearGradient>
+        <!-- Atmospheric scattering: cyan limb glow -->
+        <radialGradient id="earth3d-atmos" cx="50%" cy="50%" r="56%">
+          <stop offset="0%"    stop-color="#85e3ff" stop-opacity="0"/>
+          <stop offset="84%"   stop-color="#85e3ff" stop-opacity="0"/>
+          <stop offset="91%"   stop-color="#85e3ff" stop-opacity="0.32"/>
+          <stop offset="97%"   stop-color="#5fb3ff" stop-opacity="0.18"/>
+          <stop offset="100%"  stop-color="#5fb3ff" stop-opacity="0"/>
+        </radialGradient>
+        <!-- Clip mask: anything drawn outside the earth disc is clipped -->
+        <clipPath id="earth3d-clip">
+          <circle cx="0" cy="0" r="240"/>
+        </clipPath>
+        <!-- Soft inner shadow at limb for sphere depth -->
+        <radialGradient id="earth3d-limb-shade" cx="50%" cy="50%" r="50%">
+          <stop offset="0%"   stop-color="#000000" stop-opacity="0"/>
+          <stop offset="85%"  stop-color="#000000" stop-opacity="0"/>
+          <stop offset="100%" stop-color="#000613" stop-opacity="0.55"/>
+        </radialGradient>
+        <filter id="earth3d-citylight" x="-100%" y="-100%" width="300%" height="300%">
+          <feGaussianBlur stdDeviation="1.4" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
         <!-- Deep Space view: heliocentric sun + planet gradients -->
         <radialGradient id="sun-gradient" cx="50%" cy="50%" r="50%">
           <stop offset="0%"  stop-color="#fff8dc"/>
@@ -2237,79 +2319,311 @@ function renderAll() {
 }
 
 // === SPACE VIEW RENDERING ===
+// === 3D EARTH + ORBITS ===
+// Builds the static parts of the Orbit view ONCE (backdrop, stars, Earth
+// scaffold, label) and creates animated groups whose contents are recomputed
+// every frame by renderEarth3D() / renderOrbits3D() while the view is active.
+
+// Real-ish orbital inclinations (degrees from the equator).
+const ORBIT_INCLINATIONS = {
+  iss:  51.6,   // ISS
+  leo:  53.0,   // Starlink-class
+  meo:  55.0,   // GPS-class
+  geo:   0.0,   // equatorial
+  deep: 23.5,   // ecliptic-ish cislunar
+};
+// Longitude of the ascending node — purely stylistic so the 5 rings are
+// readable and don't overlap.
+const ORBIT_RAAN = { iss: 35, leo: -40, meo: 80, geo: 0, deep: -75 };
+
+// Major city lights to scatter on the night side of the rotating Earth.
+const EARTH_NIGHT_CITIES = [
+  [-74.0,  40.7], [-87.6,  41.9], [-122.4, 37.8], [-118.2, 34.0],
+  [-79.4,  43.7], [-99.1,  19.4], [-46.6, -23.6], [-58.4, -34.6],
+  [-0.1,   51.5], [ 2.35,  48.9], [ 13.4,  52.5], [ 12.5,  41.9],
+  [ 28.9,  41.0], [ 37.6,  55.7], [ 39.3,  21.4], [ 51.5,  25.3],
+  [ 55.3,  25.2], [ 72.8,  19.0], [ 77.2,  28.6], [ 88.4,  22.6],
+  [ 121.5, 31.2], [ 116.4, 39.9], [ 114.2, 22.3], [ 126.9, 37.6],
+  [ 139.7, 35.7], [ 151.2, -33.9], [ 174.8, -36.8],
+  [ 31.2,  30.0], [ 18.4, -33.9], [ 36.8,  -1.3], [ 3.4,   6.5],
+];
+
+let _orbitAnim = { rafId: 0, lastTs: 0, earthAngle: 0, runs: false };
+
 function renderSpaceMap() {
   if (dom.spacemapLayer.dataset.built === '1') return;
   dom.spacemapLayer.innerHTML = '';
   const frag = document.createDocumentFragment();
-  // Space background (large rect centered at 0,0)
+  // Backdrop and deterministic deep-space starfield
   frag.appendChild(svgEl('rect', {
     class: 'space-bg', x: -5000, y: -5000, width: 10000, height: 10000
   }));
-  // Range grid and deterministic star depth field.
-  for (let p = -1800; p <= 1800; p += 300) {
-    frag.appendChild(svgEl('line', { class: 'space-grid-line', x1: -1800, y1: p, x2: 1800, y2: p }));
-    frag.appendChild(svgEl('line', { class: 'space-grid-line', x1: p, y1: -1800, x2: p, y2: 1800 }));
-  }
   const rng = (seed => () => (seed = (seed * 9301 + 49297) % 233280) / 233280)(42);
-  for (let i = 0; i < 360; i++) {
+  for (let i = 0; i < 420; i++) {
     const x = (rng() - 0.5) * 4600;
     const y = (rng() - 0.5) * 4600;
-    const near = rng() > 0.86;
-    const r = near ? 1.4 + rng() * 1.8 : 0.45 + rng() * 1.05;
-    const op = near ? 0.58 + rng() * 0.38 : 0.18 + rng() * 0.48;
-    const c = svgEl('circle', { class: 'space-star' + (near ? ' near' : ''), cx: x, cy: y, r, opacity: op });
-    frag.appendChild(c);
-  }
-  // Earth atmosphere, limb, night side, and simplified landmass cues.
-  frag.appendChild(svgEl('circle', { class: 'earth-atmosphere', cx: 0, cy: 0, r: 254 }));
-  frag.appendChild(svgEl('circle', { class: 'earth-glow', cx: 0, cy: 0, r: 250 }));
-  frag.appendChild(svgEl('circle', { class: 'earth-body', cx: 0, cy: 0, r: 240 }));
-  const land = svgEl('g', { class: 'earth-land' });
-  land.appendChild(svgEl('ellipse', { cx: -80, cy: -40, rx: 60, ry: 90 }));
-  land.appendChild(svgEl('ellipse', { cx: 40, cy: 30, rx: 70, ry: 50 }));
-  land.appendChild(svgEl('ellipse', { cx: 120, cy: -80, rx: 50, ry: 40 }));
-  land.appendChild(svgEl('ellipse', { cx: -110, cy: 80, rx: 35, ry: 50 }));
-  frag.appendChild(land);
-  frag.appendChild(svgEl('circle', { class: 'earth-night', cx: 0, cy: 0, r: 240 }));
-  frag.appendChild(svgEl('path', { class: 'earth-limb', d: 'M -55 -234 C 70 -160 105 -35 65 90 C 42 160 -4 211 -76 228' }));
-
-  // Orbit bands, inclined planes, rings, ticks, and labels.
-  const bandColors = { leo: '#6fcf97', iss: '#85c3ff', meo: '#f5c84c', geo: '#ff8c42', deep: '#b388eb' };
-  const planeAngles = { leo: -18, iss: 28, meo: 42, geo: 0, deep: -38 };
-  for (const [key, def] of Object.entries(ORBIT_ALTITUDES)) {
+    const near = rng() > 0.88;
+    const r = near ? 1.5 + rng() * 1.9 : 0.4 + rng() * 1.1;
+    const op = near ? 0.6 + rng() * 0.38 : 0.18 + rng() * 0.5;
     frag.appendChild(svgEl('circle', {
-      class: 'orbit-band', cx: 0, cy: 0, r: def.radius,
-      stroke: bandColors[key] || '#85e3ff'
+      class: 'space-star' + (near ? ' near' : ''), cx: x, cy: y, r, opacity: op
     }));
-    frag.appendChild(svgEl('ellipse', {
-      class: 'orbit-plane', cx: 0, cy: 0, rx: def.radius, ry: Math.max(80, def.radius * 0.33),
-      transform: `rotate(${planeAngles[key] || 0})`
-    }));
-    const ring = svgEl('circle', {
-      class: 'orbit-ring ' + key,
-      cx: 0, cy: 0, r: def.radius
-    });
-    frag.appendChild(ring);
-    for (let deg = 0; deg < 360; deg += 30) {
-      const a = deg * Math.PI / 180;
-      const inner = def.radius - (deg % 90 === 0 ? 12 : 7);
-      frag.appendChild(svgEl('line', {
-        class: 'orbit-tick',
-        x1: inner * Math.cos(a), y1: inner * Math.sin(a),
-        x2: def.radius * Math.cos(a), y2: def.radius * Math.sin(a)
-      }));
-    }
-    const lbl = svgEl('text', {
-      class: 'orbit-label', x: 0, y: -def.radius + 4
-    });
-    lbl.textContent = `${def.label} · ${def.km.toLocaleString()} km`;
-    frag.appendChild(lbl);
   }
+  // Earth outer halo (large soft cyan glow, well outside the limb)
+  frag.appendChild(svgEl('circle', { class: 'earth3d-halo', cx: 0, cy: 0, r: 290 }));
+  // Atmospheric scattering disc (matches the earth disc + a few px)
+  frag.appendChild(svgEl('circle', { class: 'earth3d-atmos', cx: 0, cy: 0, r: 260 }));
+  // Back-half orbital arcs (behind Earth) — drawn now so Earth covers them.
+  const orbitsBack = svgEl('g', { id: 'orbits-back-layer' });
+  frag.appendChild(orbitsBack);
+  // Earth body group — recomputed each frame inside renderEarth3D().
+  const earth = svgEl('g', { id: 'earth3d-group' });
+  frag.appendChild(earth);
+  // Front-half orbital arcs + labels (in front of Earth).
+  const orbitsFront = svgEl('g', { id: 'orbits-front-layer' });
+  frag.appendChild(orbitsFront);
+  // Scale label (footer)
   const scale = svgEl('text', { class: 'space-scale-label', x: -1030, y: 1040 });
-  scale.textContent = 'Earth-centered orbital model · visual radius is compressed, labels preserve altitude class';
+  scale.textContent = 'Earth-centered orbital model · radius compressed for legibility · inclinations and rotation are real-ish';
   frag.appendChild(scale);
   dom.spacemapLayer.appendChild(frag);
   dom.spacemapLayer.dataset.built = '1';
+
+  // Initial paint so the view isn't empty before the animation frame.
+  renderEarth3D(0);
+  renderOrbits3D();
+}
+
+// === Orthographic projection helpers ===
+// Sphere is centered at (0,0,0), radius EARTH_R. Camera looks down +Z.
+// X right, Y down, Z out of the screen toward the viewer.
+const EARTH_R = 240;
+const EARTH_TILT = 0.4101524;   // 23.5° axial tilt, in radians
+const SUN_DIR = (() => {
+  // Sun is up-and-right and slightly in front of the camera.
+  // Normalize once.
+  const v = { x: 0.66, y: -0.42, z: 0.62 };
+  const m = Math.hypot(v.x, v.y, v.z);
+  return { x: v.x / m, y: v.y / m, z: v.z / m };
+})();
+
+// Rotate point (x,y,z) by angle around Y, then by axial tilt around X.
+// `ang` advances eastward (positive = clockwise when viewed from north pole).
+function _earthRot(x, y, z, ang) {
+  // Rotate around Y (longitude)
+  const c = Math.cos(ang), s = Math.sin(ang);
+  let rx = x * c + z * s;
+  let ry = y;
+  let rz = -x * s + z * c;
+  // Tilt around X (axial)
+  const ct = Math.cos(EARTH_TILT), st = Math.sin(EARTH_TILT);
+  const ty = ry * ct - rz * st;
+  const tz = ry * st + rz * ct;
+  return { x: rx, y: ty, z: tz };
+}
+
+// Convert (lng,lat) on a unit sphere to 3D point, then rotate by `ang`,
+// scale to EARTH_R, return { sx, sy, vis, lit }.
+//   sx, sy: screen coords (SVG world units), origin at Earth center.
+//   vis:    true if point is on the visible hemisphere (z >= 0)
+//   lit:    dot product with sun direction in [-1, 1]; >0 = day side
+function _projLngLat(lng, lat, ang) {
+  const rlng = lng * Math.PI / 180;
+  const rlat = lat * Math.PI / 180;
+  const cosLat = Math.cos(rlat);
+  // Geographic (lng,lat) → unit-sphere xyz, with +X at lng=0, equator on XZ plane
+  const ux = cosLat * Math.cos(rlng);
+  const uy = -Math.sin(rlat);
+  const uz = cosLat * Math.sin(rlng);
+  const r = _earthRot(ux, uy, uz, ang);
+  const sx = r.x * EARTH_R;
+  const sy = r.y * EARTH_R;
+  const vis = r.z >= -0.05;     // small tolerance for limb pixels
+  const lit = r.x * SUN_DIR.x + r.y * SUN_DIR.y + r.z * SUN_DIR.z;
+  return { sx, sy, vis, lit };
+}
+
+// Project a closed polygon of [lng,lat] vertices to a list of points on the
+// visible hemisphere. If part of the polygon wraps around the back, we split
+// it at the limb so we don't draw lines through the Earth.
+function _projContinent(poly, ang) {
+  // Walk the polygon; whenever a point becomes invisible, close the current
+  // segment along the limb. (Approximate but visually clean for stylized
+  // continents.)
+  const segments = [];
+  let current = [];
+  for (let i = 0; i <= poly.length; i++) {
+    const [lng, lat] = poly[i % poly.length];
+    const p = _projLngLat(lng, lat, ang);
+    if (p.vis) {
+      current.push(p);
+    } else if (current.length) {
+      segments.push(current);
+      current = [];
+    }
+  }
+  if (current.length) segments.push(current);
+  return segments;
+}
+
+function renderEarth3D(ang) {
+  const g = document.getElementById('earth3d-group');
+  if (!g) return;
+  g.innerHTML = '';
+
+  // 1. Ocean disc with deep-sea radial gradient
+  g.appendChild(svgEl('circle', { class: 'earth3d-ocean', cx: 0, cy: 0, r: EARTH_R }));
+
+  // 2. Sun-side specular highlight on the ocean
+  const spec = svgEl('circle', { class: 'earth3d-specular', cx: 0, cy: 0, r: EARTH_R });
+  spec.setAttribute('clip-path', 'url(#earth3d-clip)');
+  g.appendChild(spec);
+
+  // 3. Continents — projected and clipped to the disc
+  const land = svgEl('g', { class: 'earth3d-land' });
+  land.setAttribute('clip-path', 'url(#earth3d-clip)');
+  for (const poly of CONTINENT_POLYGONS) {
+    const segs = _projContinent(poly, ang);
+    for (const seg of segs) {
+      if (seg.length < 3) continue;
+      const d = 'M ' + seg.map(p => `${p.sx.toFixed(1)} ${p.sy.toFixed(1)}`).join(' L ') + ' Z';
+      land.appendChild(svgEl('path', { d }));
+    }
+  }
+  g.appendChild(land);
+
+  // 4. Day/night terminator — a dark gradient that follows the sun direction.
+  // We compute the dark side by drawing a rotated rect / disc combo. The
+  // gradient already sweeps from transparent (sun side) to dark (anti-sun),
+  // we just need to rotate it so its axis aligns with -SUN_DIR.
+  const sunAngleDeg = Math.atan2(SUN_DIR.y, SUN_DIR.x) * 180 / Math.PI;
+  const night = svgEl('circle', {
+    class: 'earth3d-night', cx: 0, cy: 0, r: EARTH_R,
+    transform: `rotate(${(sunAngleDeg + 180).toFixed(1)})`
+  });
+  night.setAttribute('clip-path', 'url(#earth3d-clip)');
+  g.appendChild(night);
+
+  // 5. City lights — only on the night side
+  const cityG = svgEl('g', { class: 'earth3d-citylight' });
+  cityG.setAttribute('clip-path', 'url(#earth3d-clip)');
+  for (const [lng, lat] of EARTH_NIGHT_CITIES) {
+    const p = _projLngLat(lng, lat, ang);
+    if (!p.vis) continue;
+    if (p.lit > 0.1) continue;   // sun side: hide
+    const opacity = clamp((-p.lit + 0.05) * 1.4, 0.2, 1.0);
+    cityG.appendChild(svgEl('circle', {
+      cx: p.sx.toFixed(1), cy: p.sy.toFixed(1),
+      r: 1.4, opacity: opacity.toFixed(2),
+    }));
+  }
+  g.appendChild(cityG);
+
+  // 6. Limb shading — soft inner shadow at the edge for sphere depth
+  const limb = svgEl('circle', { class: 'earth3d-limb', cx: 0, cy: 0, r: EARTH_R });
+  limb.setAttribute('clip-path', 'url(#earth3d-clip)');
+  g.appendChild(limb);
+}
+
+// === 3D-projected orbital rings ===
+// Each orbit lies in a plane defined by its inclination + RAAN. We sample
+// the orbit, project to screen, and split the loop into a "back" arc
+// (z < 0, hidden behind Earth, dim + dashed) and a "front" arc (z >= 0,
+// visible, bright). Label sits at the highest visible point.
+function renderOrbits3D() {
+  const back = document.getElementById('orbits-back-layer');
+  const front = document.getElementById('orbits-front-layer');
+  if (!back || !front) return;
+  back.innerHTML = '';
+  front.innerHTML = '';
+
+  for (const [key, def] of Object.entries(ORBIT_ALTITUDES)) {
+    const inc  = (ORBIT_INCLINATIONS[key] || 0) * Math.PI / 180;
+    const raan = (ORBIT_RAAN[key] || 0) * Math.PI / 180;
+    const R    = def.radius;
+    // Sample the orbit once and bucket into front/back continuous arcs.
+    const arcs = [[]];     // alternating "back" / "front" segments
+    let lastWasFront = null;
+    let highest = { sy: Infinity, sx: 0 };
+    for (let i = 0; i <= 180; i++) {
+      const t = (i / 180) * 2 * Math.PI;
+      // Position in orbital plane (X-Z plane, Y up)
+      let ox = R * Math.cos(t);
+      let oy = 0;
+      let oz = R * Math.sin(t);
+      // Rotate by RAAN around Y
+      const cr = Math.cos(raan), sr = Math.sin(raan);
+      const rx = ox * cr + oz * sr;
+      const rz = -ox * sr + oz * cr;
+      ox = rx; oz = rz;
+      // Tilt by inclination around X
+      const ci = Math.cos(inc), si = Math.sin(inc);
+      const ry = oy * ci - oz * si;
+      const rz2 = oy * si + oz * ci;
+      oy = ry; oz = rz2;
+      // Project (Y down in SVG)
+      const sx = ox;
+      const sy = -oy;
+      const z  = oz;
+      const isFront = z >= 0;
+      if (lastWasFront === null) {
+        lastWasFront = isFront;
+        arcs[0] = [{ sx, sy, front: isFront }];
+      } else if (isFront !== lastWasFront) {
+        arcs.push([{ sx, sy, front: isFront }]);
+        lastWasFront = isFront;
+      } else {
+        arcs[arcs.length - 1].push({ sx, sy, front: isFront });
+      }
+      if (sy < highest.sy && isFront) { highest = { sx, sy }; }
+    }
+    // Emit each arc into the right layer
+    for (const arc of arcs) {
+      if (arc.length < 2) continue;
+      const d = 'M ' + arc.map(p => `${p.sx.toFixed(1)} ${p.sy.toFixed(1)}`).join(' L ');
+      if (arc[0].front) {
+        front.appendChild(svgEl('path', { class: `orbit3d-front ${key}`, d }));
+      } else {
+        back.appendChild(svgEl('path', { class: `orbit3d-back ${key}`, d }));
+      }
+    }
+    // Label at the topmost visible point of the orbit
+    const lbl = svgEl('text', {
+      class: 'orbit3d-label',
+      x: highest.sx.toFixed(1), y: (highest.sy - 6).toFixed(1),
+    });
+    lbl.textContent = `${def.label} · ${def.km.toLocaleString()} km · ${(ORBIT_INCLINATIONS[key] || 0).toFixed(1)}°`;
+    front.appendChild(lbl);
+  }
+}
+
+// === Rotation animation ===
+// Starts when the Orbit view is shown, stops on view switch. Earth spins at
+// a scaled rate (one full revolution per ~90 visible seconds).
+function startOrbitAnimation() {
+  if (_orbitAnim.runs) return;
+  _orbitAnim.runs = true;
+  _orbitAnim.lastTs = performance.now();
+  const step = (ts) => {
+    if (!_orbitAnim.runs) return;
+    const dt = (ts - _orbitAnim.lastTs) / 1000;
+    _orbitAnim.lastTs = ts;
+    // 2π per 90 seconds → smooth visible rotation
+    _orbitAnim.earthAngle += (2 * Math.PI / 90) * dt;
+    if (state.viewMode === 'space') {
+      renderEarth3D(_orbitAnim.earthAngle);
+      // Orbits do not need re-projection (they're static in world space),
+      // but satellites that ride them might in future — leave the helper
+      // callable per frame and just call it once at start.
+    }
+    _orbitAnim.rafId = requestAnimationFrame(step);
+  };
+  _orbitAnim.rafId = requestAnimationFrame(step);
+}
+function stopOrbitAnimation() {
+  _orbitAnim.runs = false;
+  if (_orbitAnim.rafId) cancelAnimationFrame(_orbitAnim.rafId);
+  _orbitAnim.rafId = 0;
 }
 
 function renderSpaceAssets() {
@@ -4159,6 +4473,9 @@ function setViewMode(mode) {
   if (mode === 'city' && cityById(state.activeCityId)) requestAnimationFrame(fitCity);
   if (mode === 'space') requestAnimationFrame(fitSpace);
   if (mode === 'deepspace') requestAnimationFrame(fitDeepSpace);
+  // Start/stop the Orbit-view rotation loop when entering/leaving Orbit.
+  if (mode === 'space') startOrbitAnimation();
+  else stopOrbitAnimation();
 }
 
 function updateViewToggleButtons() {
@@ -7984,15 +8301,20 @@ async function init() {
     const v = localStorage.getItem(LIVE_MAP_KEY);
     setLiveMap(v === null ? true : v === '1');
   } catch (e) { setLiveMap(true); }
-  document.body.classList.toggle('world-mode', state.viewMode === 'world');
-  document.body.classList.toggle('city-mode',  state.viewMode === 'city');
-  document.body.classList.toggle('space-mode', state.viewMode === 'space');
-  dom.svg.classList.toggle('world-mode', state.viewMode === 'world');
-  dom.svg.classList.toggle('city-mode',  state.viewMode === 'city');
-  dom.svg.classList.toggle('space-mode', state.viewMode === 'space');
+  document.body.classList.toggle('world-mode',     state.viewMode === 'world');
+  document.body.classList.toggle('city-mode',      state.viewMode === 'city');
+  document.body.classList.toggle('space-mode',     state.viewMode === 'space');
+  document.body.classList.toggle('deepspace-mode', state.viewMode === 'deepspace');
+  dom.svg.classList.toggle('world-mode',     state.viewMode === 'world');
+  dom.svg.classList.toggle('city-mode',      state.viewMode === 'city');
+  dom.svg.classList.toggle('space-mode',     state.viewMode === 'space');
+  dom.svg.classList.toggle('deepspace-mode', state.viewMode === 'deepspace');
   updateViewToggleButtons();
   updateWorldTransform();
   renderAll();
+  // Kick off the Orbit rotation loop if we restored a session already in
+  // Orbit view (setViewMode normally does this; init bypasses it).
+  if (state.viewMode === 'space') startOrbitAnimation();
   // Wait one frame so canvas has its final size, then fit if no saved viewport
   if (!restored) requestAnimationFrame(fitView);
 }
