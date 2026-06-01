@@ -575,11 +575,17 @@
     font-family: "SF Mono", Menlo, monospace; pointer-events: none; }
 
   .space-asset { cursor: pointer; }
+  .space-asset.back { opacity: 0.52; }
   .space-asset .sa-halo { fill: none; stroke-width: 8; opacity: 0.16; filter: url(#soft-glow); pointer-events: none; }
   .space-asset .sa-bg { fill: rgba(14,17,22,0.92); stroke-width: 2; }
   .space-asset .sa-icon { color: #fff; pointer-events: none; }
+  .space-asset.back .sa-bg { fill: rgba(9,12,18,0.82); }
   .space-asset.selected .sa-bg { stroke: var(--select); stroke-width: 3; filter: drop-shadow(0 0 6px var(--select)); }
   .space-asset.connect-pending .sa-bg { stroke: #85e3ff; stroke-width: 3; filter: url(#soft-glow); }
+  .space-asset .sa-status { fill: none; stroke-width: 2; stroke-linecap: round; pointer-events: none; }
+  .space-asset .sa-status.ok { stroke: var(--ok); }
+  .space-asset .sa-status.warn { stroke: var(--warn); stroke-dasharray: 5 4; }
+  .space-asset .sa-status.idle { stroke: rgba(214,221,230,0.28); stroke-dasharray: 2 5; }
   .space-asset .sa-label { fill: var(--text); font-size: 11px; font-weight: 500;
     text-anchor: middle; pointer-events: none; user-select: none;
     paint-order: stroke; stroke: var(--bg-0); stroke-width: 3; }
@@ -597,6 +603,8 @@
   .space-link { fill: none; cursor: pointer; pointer-events: none; filter: url(#link-glow); }
   .space-link.pulse { stroke-dasharray: 1 12; stroke-linecap: round; opacity: 0.75;
     animation: space-link-pulse 1.8s linear infinite; }
+  .space-link.occulted { opacity: 0.34; stroke-dasharray: 3 8; }
+  .space-link.pulse.occulted { display: none; }
   .space-link.selected { filter: drop-shadow(0 0 6px var(--select)); }
   .space-link-label { fill: var(--text-dim); font-size: 10px; text-anchor: middle;
     pointer-events: none; user-select: none;
@@ -2669,11 +2677,21 @@ function initEarthWebGL(parentGroup) {
         vec3 N = normalize(vNorm);
         vec3 V = vec3(0.0, 0.0, 1.0);     // orthographic view direction
         float sunDot = dot(N, uSunDir);
-        vec3 day = texture2D(uDayTex, vUV).rgb;
+        vec3 raw = texture2D(uDayTex, vUV).rgb;
+        // The user's worldmap.png is a dark night-Earth photo: ocean is very
+        // dark, land is slightly brighter, city lights are bright. Push the
+        // contrast so continents pop on the day side and lights pop at night.
+        float luma = dot(raw, vec3(0.30, 0.59, 0.11));
+        vec3 day = raw * (1.0 + luma * 1.4);                      // boost mids/highs
+        day = clamp(day * 1.35, 0.0, 1.0);
         float dayMix = smoothstep(-0.20, 0.30, sunDot);
-        // Night side: heavily dimmed surface with a faint blue tint, but
-        // preserve relative brightness so coastlines / lights stay readable.
-        vec3 night = day * 0.18 + vec3(0.012, 0.022, 0.055);
+        // Night side: city lights stay bright (their relative luma is
+        // already high in the photo); base is dimmed with a faint blue tint.
+        vec3 night = raw * 0.35 + vec3(0.015, 0.030, 0.075);
+        // Pull out the brightest texels (city lights) and keep them visible
+        // on the night side at full strength.
+        float lightMask = smoothstep(0.55, 0.85, luma);
+        night += raw * lightMask * 0.6;
         vec3 surface = mix(night, day, dayMix);
         // Atmospheric rim (Fresnel-style), tinted by how lit the limb is.
         float fresnel = pow(1.0 - max(dot(N, V), 0.0), 2.5);
@@ -2859,6 +2877,83 @@ function renderOrbits3D() {
   }
 }
 
+function orbitPoint2D(orbitKey, angle) {
+  const def = ORBIT_ALTITUDES[orbitKey] || ORBIT_ALTITUDES.leo;
+  const inc  = (ORBIT_INCLINATIONS[orbitKey] || 0) * Math.PI / 180;
+  const raan = (ORBIT_RAAN[orbitKey] || 0) * Math.PI / 180;
+  const R = def.radius;
+  let ox = R * Math.cos(angle);
+  let oy = 0;
+  let oz = R * Math.sin(angle);
+  const cr = Math.cos(raan), sr = Math.sin(raan);
+  const rx = ox * cr + oz * sr;
+  const rz = -ox * sr + oz * cr;
+  ox = rx; oz = rz;
+  const ci = Math.cos(inc), si = Math.sin(inc);
+  const ry = oy * ci - oz * si;
+  const rz2 = oy * si + oz * ci;
+  return { x: ox, y: -ry, z: rz2, front: rz2 >= 0 };
+}
+
+function orbitAngleFromWorld(orbitKey, x, y) {
+  let best = { angle: Math.atan2(y, x), d2: Infinity };
+  for (let i = 0; i < 240; i++) {
+    const angle = (i / 240) * Math.PI * 2;
+    const p = orbitPoint2D(orbitKey, angle);
+    const d2v = (p.x - x) * (p.x - x) + (p.y - y) * (p.y - y);
+    if (d2v < best.d2) best = { angle, d2: d2v };
+  }
+  return best.angle;
+}
+
+function orbitPeriodMinutes(orbitKey) {
+  if (orbitKey === 'ground') return 0;
+  const alt = (ORBIT_ALTITUDES[orbitKey] || ORBIT_ALTITUDES.leo).km;
+  const earthMu = 398600.4418; // km^3/s^2
+  const radiusKm = 6371 + alt;
+  return 2 * Math.PI * Math.sqrt(Math.pow(radiusKm, 3) / earthMu) / 60;
+}
+
+function orbitSpeedKms(orbitKey) {
+  if (orbitKey === 'ground') return 0;
+  const alt = (ORBIT_ALTITUDES[orbitKey] || ORBIT_ALTITUDES.leo).km;
+  return Math.sqrt(398600.4418 / (6371 + alt));
+}
+
+function spaceAssetVectorKm(a) {
+  const def = SPACE_ASSET_TYPES[a.type] || SPACE_ASSET_TYPES.satellite_leo;
+  const orbitKey = a.type === 'ground_station' ? 'ground' : (a.orbit || def.orbit || 'leo');
+  if (orbitKey === 'ground') {
+    const ang = a.angle || Math.atan2(a.y || 0, a.x || 1);
+    return { x: 6371 * Math.cos(ang), y: 0, z: 6371 * Math.sin(ang), orbitKey };
+  }
+  const radiusKm = 6371 + (ORBIT_ALTITUDES[orbitKey] || ORBIT_ALTITUDES.leo).km;
+  const p = orbitPoint2D(orbitKey, a.angle || 0);
+  const scale = radiusKm / (ORBIT_ALTITUDES[orbitKey] || ORBIT_ALTITUDES.leo).radius;
+  return { x: p.x * scale, y: -p.y * scale, z: p.z * scale, orbitKey };
+}
+
+function spaceLinkMetrics(a, b) {
+  const va = spaceAssetVectorKm(a), vb = spaceAssetVectorKm(b);
+  const dx = vb.x - va.x, dy = vb.y - va.y, dz = vb.z - va.z;
+  const distanceKm = Math.hypot(dx, dy, dz);
+  const latencyMs = distanceKm / 299792.458 * 1000;
+  let occulted = false;
+  const aGround = a.type === 'ground_station';
+  const bGround = b.type === 'ground_station';
+  if (aGround !== bGround) {
+    const g = aGround ? va : vb;
+    const s = aGround ? vb : va;
+    occulted = ((s.x - g.x) * g.x + (s.y - g.y) * g.y + (s.z - g.z) * g.z) <= 0;
+  } else if (!aGround && !bGround) {
+    const seg2 = dx * dx + dy * dy + dz * dz;
+    const t = seg2 ? clamp(-(va.x * dx + va.y * dy + va.z * dz) / seg2, 0, 1) : 0;
+    const cx = va.x + dx * t, cy = va.y + dy * t, cz = va.z + dz * t;
+    occulted = t > 0.02 && t < 0.98 && Math.hypot(cx, cy, cz) < 6371;
+  }
+  return { distanceKm, latencyMs, occulted };
+}
+
 // === Rotation animation ===
 // Starts when the Orbit view is shown, stops on view switch. Earth spins at
 // a scaled rate (one full revolution per ~90 visible seconds).
@@ -2890,13 +2985,18 @@ function stopOrbitAnimation() {
 
 function renderSpaceAssets() {
   dom.spaceassetsLayer.innerHTML = '';
-  for (const a of state.spaceAssets) {
+  const assetRows = state.spaceAssets.map(a => ({ asset: a, pos: spaceAssetPosition(a) }))
+    .sort((a, b) => (a.pos.z || 0) - (b.pos.z || 0));
+  for (const row of assetRows) {
+    const a = row.asset;
     const def = SPACE_ASSET_TYPES[a.type] || SPACE_ASSET_TYPES.satellite_leo;
-    const pos = spaceAssetPosition(a);
+    const pos = row.pos;
     const selected = state.selectedIds.has(a.id);
     const pending = state.pendingConnectId === a.id;
+    const linkCount = state.spaceLinks.filter(l => l.fromAssetId === a.id || l.toAssetId === a.id).length;
+    const status = linkCount ? (pos.front === false ? 'warn' : 'ok') : 'idle';
     const g = svgEl('g', {
-      class: 'space-asset' + (selected ? ' selected' : '') + (pending ? ' connect-pending' : ''),
+      class: 'space-asset' + (pos.front === false ? ' back' : '') + (selected ? ' selected' : '') + (pending ? ' connect-pending' : ''),
       transform: `translate(${pos.x} ${pos.y})`,
       'data-id': a.id, 'data-kind': 'spaceasset'
     });
@@ -2905,6 +3005,7 @@ function renderSpaceAssets() {
     }
     g.appendChild(svgEl('circle', { class: 'sa-halo', cx: 0, cy: 0, r: 26, stroke: def.color }));
     g.appendChild(svgEl('circle', { class: 'sa-bg', cx: 0, cy: 0, r: 22, stroke: def.color }));
+    g.appendChild(svgEl('path', { class: `sa-status ${status}`, d: 'M -15 -18 A 23 23 0 0 1 15 -18' }));
     g.appendChild(svgEl('use', {
       class: 'sa-icon', href: '#' + def.icon, x: -16, y: -16, width: 32, height: 32
     }));
@@ -2929,27 +3030,29 @@ function renderSpaceLinks() {
     const pa = spaceAssetPosition(a), pb = spaceAssetPosition(b);
     const def = SPACE_LINK_TYPES[sl.type] || SPACE_LINK_TYPES.laser_isl;
     const selected = state.selectedIds.has(sl.id);
+    const metrics = spaceLinkMetrics(a, b);
     const g = svgEl('g', { 'data-id': sl.id, 'data-kind': 'spacelink' });
     const cone = spaceCoverageCone(a, b, def);
     if (cone) g.appendChild(cone);
     g.appendChild(svgEl('line', { class: 'space-link-hit', x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y }));
     const attrs = {
-      class: 'space-link' + (selected ? ' selected' : ''),
+      class: 'space-link' + (metrics.occulted ? ' occulted' : '') + (selected ? ' selected' : ''),
       x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y,
       stroke: def.color, 'stroke-width': def.width, 'stroke-linecap': 'round',
     };
     if (def.dash) attrs['stroke-dasharray'] = def.dash;
     g.appendChild(svgEl('line', attrs));
     const pulseAttrs = {
-      class: 'space-link pulse',
+      class: 'space-link pulse' + (metrics.occulted ? ' occulted' : ''),
       x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y,
       stroke: def.color, 'stroke-width': Math.max(1.4, def.width * 0.65),
       'stroke-dasharray': '1 14', 'stroke-linecap': 'round',
     };
     g.appendChild(svgEl('line', pulseAttrs));
-    if (sl.label) {
+    if (sl.label || selected) {
       const t = svgEl('text', { class: 'space-link-label', x: (pa.x+pb.x)/2, y: (pa.y+pb.y)/2 - 6 });
-      t.textContent = sl.label;
+      const metricLabel = `${Math.round(metrics.distanceKm).toLocaleString()} km - ${metrics.latencyMs.toFixed(1)} ms`;
+      t.textContent = sl.label ? `${sl.label} - ${metricLabel}` : metricLabel;
       g.appendChild(t);
     }
     dom.spacelinksLayer.appendChild(g);
@@ -2959,23 +3062,22 @@ function renderSpaceLinks() {
 // Place an asset around an orbital ring at its `angle` (radians).
 // Ground stations are placed at the Earth surface (radius 240).
 function spaceAssetPosition(a) {
-  if (a.x != null && a.y != null && a.type !== '__bypass') {
-    // explicit override (for ground stations placed manually)
-    if (a.type === 'ground_station') return { x: a.x, y: a.y };
-  }
   const def = SPACE_ASSET_TYPES[a.type] || SPACE_ASSET_TYPES.satellite_leo;
-  let r;
-  if (a.type === 'ground_station') r = 240;
-  else r = (ORBIT_ALTITUDES[def.orbit] || ORBIT_ALTITUDES.leo).radius;
   const ang = a.angle || 0;
-  return { x: r * Math.cos(ang), y: r * Math.sin(ang) };
+  if (a.type === 'ground_station') {
+    return { x: 240 * Math.cos(ang), y: 240 * Math.sin(ang), z: 1, front: true };
+  }
+  return orbitPoint2D(a.orbit || def.orbit || 'leo', ang);
 }
 
 function spaceAssetAltitudeLabel(a) {
   const def = SPACE_ASSET_TYPES[a.type] || SPACE_ASSET_TYPES.satellite_leo;
   if (a.type === 'ground_station') return 'surface';
-  const orbit = ORBIT_ALTITUDES[def.orbit] || ORBIT_ALTITUDES.leo;
-  return `${orbit.label} · ${orbit.km.toLocaleString()} km`;
+  const orbitKey = a.orbit || def.orbit || 'leo';
+  const orbitDef = ORBIT_ALTITUDES[orbitKey] || ORBIT_ALTITUDES.leo;
+  const minutes = orbitPeriodMinutes(orbitKey);
+  const period = minutes >= 1440 ? `${(minutes / 1440).toFixed(1)} d` : `${Math.round(minutes)} m`;
+  return `${orbitDef.label} - ${orbitDef.km.toLocaleString()} km - ${period}`;
 }
 
 function spaceCoverageCone(a, b, linkDef) {
@@ -3544,10 +3646,13 @@ function clearOverlay() { dom.overlayLayer.innerHTML = ''; }
 
 function renderPreviewLine(fromId, wx, wy) {
   clearOverlay();
-  const from = deviceById(fromId);
+  const from = state.viewMode === 'space' ? spaceAssetById(fromId)
+    : state.viewMode === 'city' ? endpointById(fromId)
+    : deviceById(fromId);
   if (!from) return;
+  const p = state.viewMode === 'space' ? spaceAssetPosition(from) : from;
   const line = svgEl('line', {
-    class: 'preview-line', x1: from.x, y1: from.y, x2: wx, y2: wy
+    class: 'preview-line', x1: p.x, y1: p.y, x2: wx, y2: wy
   });
   dom.overlayLayer.appendChild(line);
 }
@@ -3625,6 +3730,17 @@ function renderSpaceAssetProperties(a) {
     Object.entries(SPACE_ASSET_TYPES).map(([k, v]) =>
       `<option value="${k}" ${k === a.type ? 'selected' : ''}>${v.label}</option>`).join('') +
     `</select></div>`;
+  if (a.type !== 'ground_station') {
+    const orbitKey = a.orbit || def.orbit || 'leo';
+    html += `<div class="pr-field"><label>Orbit Band</label><select data-key="orbit">` +
+      Object.entries(ORBIT_ALTITUDES).map(([k, v]) =>
+        `<option value="${k}" ${k === orbitKey ? 'selected' : ''}>${v.label} (${v.km.toLocaleString()} km)</option>`).join('') +
+      `</select></div>`;
+    html += `<div class="pr-field-row">` +
+      `<div class="pr-field"><label>Period</label><input value="${orbitPeriodMinutes(orbitKey).toFixed(1)} min" disabled/></div>` +
+      `<div class="pr-field"><label>Speed</label><input value="${orbitSpeedKms(orbitKey).toFixed(2)} km/s" disabled/></div>` +
+      `</div>`;
+  }
   html += `<div class="pr-field"><label>Angle on orbit (radians)</label><input data-key="angle" data-num="1" type="number" step="0.01" value="${(a.angle || 0).toFixed(3)}"/></div>`;
   const p = a.props || {};
   for (const [k, v] of Object.entries(p)) {
@@ -3638,7 +3754,17 @@ function renderSpaceAssetProperties(a) {
       const key = inp.getAttribute('data-key');
       if (inp.getAttribute('data-prop')) { a.props = a.props || {}; a.props[key] = inp.value; }
       else if (inp.getAttribute('data-num')) { a[key] = Number(inp.value) || 0; }
-      else { a[key] = inp.value; }
+      else {
+        a[key] = inp.value;
+        if (key === 'type') {
+          const nextDef = SPACE_ASSET_TYPES[a.type] || SPACE_ASSET_TYPES.satellite_leo;
+          a.orbit = a.type === 'ground_station' ? 'ground' : nextDef.orbit;
+          if (a.type === 'ground_station') {
+            a.x = 240 * Math.cos(a.angle || 0);
+            a.y = 240 * Math.sin(a.angle || 0);
+          }
+        }
+      }
       renderAll();
     });
   });
@@ -3647,6 +3773,7 @@ function renderSpaceAssetProperties(a) {
 function renderSpaceLinkProperties(sl) {
   dom.prType.textContent = 'Orbit Link';
   const a = spaceAssetById(sl.fromAssetId), b = spaceAssetById(sl.toAssetId);
+  const metrics = a && b ? spaceLinkMetrics(a, b) : null;
   let html = '';
   html += `<div class="pr-field"><label>Label</label><input data-key="label" type="text" value="${escapeHtml(sl.label || '')}"/></div>`;
   html += `<div class="pr-field"><label>Type</label><select data-key="type">` +
@@ -3655,6 +3782,13 @@ function renderSpaceLinkProperties(sl) {
     `</select></div>`;
   html += `<div class="pr-field"><label>From</label><input value="${escapeHtml(a ? a.label : '?')}" disabled/></div>`;
   html += `<div class="pr-field"><label>To</label><input value="${escapeHtml(b ? b.label : '?')}" disabled/></div>`;
+  if (metrics) {
+    html += `<div class="pr-field-row">` +
+      `<div class="pr-field"><label>Range</label><input value="${Math.round(metrics.distanceKm).toLocaleString()} km" disabled/></div>` +
+      `<div class="pr-field"><label>One-way delay</label><input value="${metrics.latencyMs.toFixed(1)} ms" disabled/></div>` +
+      `</div>`;
+    html += `<div class="pr-field"><label>Line of sight</label><input value="${metrics.occulted ? 'Earth occulted / below horizon' : 'Clear'}" disabled/></div>`;
+  }
   dom.prBody.innerHTML = html;
   dom.prBody.querySelectorAll('input, select').forEach(inp => {
     inp.addEventListener('change', () => {
@@ -4071,7 +4205,7 @@ dom.svg.addEventListener('mousedown', (e) => {
         };
       } else {
         // Place at click's angle on the asset's orbit
-        const ang = Math.atan2(world.y, world.x);
+        const ang = orbitAngleFromWorld(def.orbit, world.x, world.y);
         asset = {
           id: uid(), type: state.activeSpaceAssetType,
           label: `${def.label} ${n}`,
@@ -4413,7 +4547,10 @@ dom.svg.addEventListener('mousemove', (e) => {
     } else if (drag.kind === 'spaceasset-move') {
       const a = spaceAssetById(drag.assetId);
       if (a) {
-        a.angle = Math.atan2(world.y, world.x);
+        const def = SPACE_ASSET_TYPES[a.type] || SPACE_ASSET_TYPES.satellite_leo;
+        a.angle = a.type === 'ground_station'
+          ? Math.atan2(world.y, world.x)
+          : orbitAngleFromWorld(a.orbit || def.orbit || 'leo', world.x, world.y);
         if (a.type === 'ground_station') {
           a.x = 240 * Math.cos(a.angle);
           a.y = 240 * Math.sin(a.angle);
@@ -5945,7 +6082,7 @@ function sanitizeDiagram(obj) {
     type: cleanEnum(a.type, SPACE_ASSET_TYPES, 'satellite_leo'),
     label: cleanString(a.label || 'Orbit Asset'),
     angle: clampNum(a.angle, -Math.PI * 20, Math.PI * 20, 0),
-    orbit: cleanString(a.orbit || SPACE_ASSET_TYPES[cleanEnum(a.type, SPACE_ASSET_TYPES, 'satellite_leo')].orbit, 32),
+    orbit: cleanEnum(a.orbit || SPACE_ASSET_TYPES[cleanEnum(a.type, SPACE_ASSET_TYPES, 'satellite_leo')].orbit, ORBIT_ALTITUDES, 'leo'),
     props: cleanProps(a.props),
   }));
   const spaceAssetIds = new Set(spaceAssets.map(a => a.id));
