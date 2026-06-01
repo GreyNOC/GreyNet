@@ -1,13 +1,27 @@
 version: 2
 updates:
-  - package-ecosystem: "github-actions"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-
+  # npm dependencies (electron, electron-builder, leaflet, …)
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"
+      day: "monday"
+      time: "06:00"
     open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+    groups:
+      # Bundle dev-only updates so we don't drown in PRs
+      dev-deps:
+        dependency-type: "development"
+
+  # GitHub Actions versions in .github/workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+    open-pull-requests-limit: 3
+    labels:
+      - "ci"

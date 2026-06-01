@@ -1,11 +1,77 @@
+# === Node / build output ===
 node_modules/
 dist/
-.claude/settings.local.json
+build/
+out/
+*.tsbuildinfo
+.npm/
+.yarn/
+.pnp.*
+.parcel-cache/
+.cache/
 
+# Electron-builder artifacts
+*.exe
+*.dmg
+*.deb
+*.AppImage
+*.msi
+*.snap
+*.app/
+release/
+release-builds/
+
+# === Secrets / local config ===
+# Encrypted secure-settings.json lives in the user's APPDATA, never the repo,
+# but be paranoid in case anyone copies it into the project root.
+secure-settings.json
+secrets/
+*.env
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Editor / IDE
+.vscode/
+!.vscode/extensions.json
+!.vscode/settings.example.json
+.idea/
+*.swp
+*.swo
+*~
+.history/
+
+# Claude Code local config (only the local override is private)
+.claude/settings.local.json
+.claude/.cache/
+
+# === OS / misc ===
+.DS_Store
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# === Logs ===
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+logs/
 
-.DS_Store
-Thumbs.db
+# === Test / coverage ===
+coverage/
+.nyc_output/
+*.lcov
+
+# === User-generated content the user may drop into the project root ===
+# (worldmap.png is intentionally tracked — it's the default Earth photo.)
+worldmap.local.*
+diagram-*.json
+greynet-export-*.json
+*.greynet.bak

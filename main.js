@@ -58,7 +58,7 @@ function readSecureSettings() {
   try {
     return JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
   } catch (e) {
-    return { aiProvider: 'anthropic', aiApiKeys: {}, gmapsApiKey: '' };
+    return { aiProvider: 'anthropic', aiApiKeys: {}, aiModel: {}, gmapsApiKey: '' };
   }
 }
 
@@ -75,11 +75,19 @@ function settingsSummary() {
       anthropic: !!settings.aiApiKeys?.anthropic,
       openai: !!settings.aiApiKeys?.openai,
     },
+    aiModel: {
+      anthropic: typeof settings.aiModel?.anthropic === 'string' ? settings.aiModel.anthropic : '',
+      openai:    typeof settings.aiModel?.openai    === 'string' ? settings.aiModel.openai    : '',
+    },
     hasGmapsApiKey: !!settings.gmapsApiKey,
   };
 }
 
 function configureSecurityHeaders() {
+  // script-src omits 'unsafe-inline' — all renderer JS lives in app.js,
+  // loaded as an external file. style-src still permits 'unsafe-inline'
+  // because the renderer uses many inline style="..." attributes; the XSS
+  // attack surface there is much narrower than for scripts.
   const csp = [
     "default-src 'self'",
     "base-uri 'self'",
@@ -87,7 +95,7 @@ function configureSecurityHeaders() {
     "frame-src 'none'",
     "img-src 'self' data: blob: https://*.tile.openstreetmap.org https://maps.gstatic.com https://maps.googleapis.com",
     "style-src 'self' 'unsafe-inline'",
-    "script-src 'self' 'unsafe-inline' https://maps.googleapis.com https://maps.gstatic.com",
+    "script-src 'self' https://maps.googleapis.com https://maps.gstatic.com",
     "connect-src 'self' https://*.tile.openstreetmap.org https://maps.googleapis.com https://maps.gstatic.com",
   ].join('; ');
 
@@ -117,6 +125,10 @@ function registerIpc() {
         anthropic: existing.aiApiKeys?.anthropic || '',
         openai: existing.aiApiKeys?.openai || '',
       },
+      aiModel: {
+        anthropic: existing.aiModel?.anthropic || '',
+        openai:    existing.aiModel?.openai    || '',
+      },
       gmapsApiKey: existing.gmapsApiKey || '',
     };
 
@@ -126,6 +138,11 @@ function registerIpc() {
         next.aiApiKeys[providerName] = encryptSecret(value.trim());
       } else if (value === '') {
         next.aiApiKeys[providerName] = '';
+      }
+      // Model names are NOT secrets — store plaintext. Hard cap length.
+      const modelValue = payload?.aiModel?.[providerName];
+      if (typeof modelValue === 'string') {
+        next.aiModel[providerName] = modelValue.trim().slice(0, 64);
       }
     }
 
@@ -151,6 +168,9 @@ function registerIpc() {
     const prompt = String(payload?.prompt || '').slice(0, 50000);
     if (!system || !prompt) throw new Error('AI request is missing prompt context.');
 
+    // Provider-specific model selection: user-configurable, with safe defaults.
+    const model = aiModelFor(provider, settings);
+
     if (provider === 'anthropic') {
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
         method: 'POST',
@@ -160,13 +180,13 @@ function registerIpc() {
           'anthropic-version': '2023-06-01',
         },
         body: JSON.stringify({
-          model: 'claude-opus-4-7',
+          model,
           max_tokens: 4096,
           system,
           messages: [{ role: 'user', content: prompt }],
         }),
       });
-      if (!resp.ok) throw new Error(`Anthropic API error ${resp.status}: ${await resp.text()}`);
+      if (!resp.ok) await throwSanitized('Anthropic', resp);
       const json = await resp.json();
       return { provider, text: json.content?.[0]?.text || '' };
     }
@@ -178,7 +198,7 @@ function registerIpc() {
         authorization: 'Bearer ' + key,
       },
       body: JSON.stringify({
-        model: 'gpt-4o',
+        model,
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: prompt },
@@ -186,10 +206,64 @@ function registerIpc() {
         response_format: { type: 'json_object' },
       }),
     });
-    if (!resp.ok) throw new Error(`OpenAI API error ${resp.status}: ${await resp.text()}`);
+    if (!resp.ok) await throwSanitized('OpenAI', resp);
     const json = await resp.json();
     return { provider, text: json.choices?.[0]?.message?.content || '' };
   });
+}
+
+// Map a provider's raw HTTP failure to a renderer-safe Error. The raw response
+// body can contain the offending request payload (which may include sensitive
+// prompt content), org identifiers, server-side stack traces, or — in worst
+// cases — fragments of the auth header reflected back. Log it locally, but
+// hand the renderer only a short categorical message.
+async function throwSanitized(providerLabel, resp) {
+  let body = '';
+  try { body = await resp.text(); } catch (e) { /* ignore */ }
+  // Local-only diagnostic. Visible in the Electron terminal, not the renderer.
+  console.error(
+    `[${providerLabel}] ${resp.status} ${resp.statusText} — body: ${body.slice(0, 1500)}`
+  );
+  const msg = sanitizedAiMessage(resp.status, resp.statusText, providerLabel);
+  throw new Error(msg);
+}
+
+function sanitizedAiMessage(status, statusText, providerLabel) {
+  // Categorical mapping — never echoes the response body.
+  if (status === 401 || status === 403) {
+    return `${providerLabel} rejected the API key (HTTP ${status}). Open Settings and re-enter it.`;
+  }
+  if (status === 404) {
+    return `${providerLabel} returned 404. The configured model name may be wrong; check Settings → AI Model.`;
+  }
+  if (status === 408 || status === 504) {
+    return `${providerLabel} timed out (HTTP ${status}). Try again in a moment.`;
+  }
+  if (status === 429) {
+    return `${providerLabel} rate-limited this request (HTTP 429). Try again shortly.`;
+  }
+  if (status >= 500 && status < 600) {
+    return `${providerLabel} server error (HTTP ${status}). Try again in a moment.`;
+  }
+  if (status === 400 || status === 422) {
+    return `${providerLabel} rejected the request as malformed (HTTP ${status}). Check the prompt and model.`;
+  }
+  return `${providerLabel} request failed (HTTP ${status} ${statusText || ''}).`.trim();
+}
+
+// User-configurable model selection with hard-coded defaults. The renderer
+// passes nothing here; we read directly from secure-settings.json.
+function aiModelFor(provider, settings) {
+  const defaults = {
+    anthropic: 'claude-opus-4-7',
+    openai:    'gpt-4o',
+  };
+  const m = settings?.aiModel?.[provider];
+  if (typeof m === 'string' && m.trim()) {
+    // Sanity bound: model names are short identifiers.
+    return m.trim().slice(0, 64);
+  }
+  return defaults[provider];
 }
 
 function createWindow() {
