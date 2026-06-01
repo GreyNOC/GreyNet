@@ -2466,9 +2466,22 @@ function _projContinent(poly, ang) {
   return segments;
 }
 
+// renderEarth3D dispatches to a WebGL textured-sphere path (preferred — wraps
+// the worldmap.png photo onto a real 3D-projected globe) or falls back to a
+// procedural SVG path that draws CONTINENT_POLYGONS via orthographic
+// projection. The choice is made once on the first call.
 function renderEarth3D(ang) {
   const g = document.getElementById('earth3d-group');
   if (!g) return;
+  if (_earth3d.mode === 'init') initEarthWebGL(g);
+  if (_earth3d.mode === 'webgl') {
+    renderEarth3D_WebGL(ang);
+    return;
+  }
+  renderEarth3D_SVG(ang, g);
+}
+
+function renderEarth3D_SVG(ang, g) {
   g.innerHTML = '';
 
   // 1. Ocean disc with deep-sea radial gradient
@@ -2493,9 +2506,6 @@ function renderEarth3D(ang) {
   g.appendChild(land);
 
   // 4. Day/night terminator — a dark gradient that follows the sun direction.
-  // We compute the dark side by drawing a rotated rect / disc combo. The
-  // gradient already sweeps from transparent (sun side) to dark (anti-sun),
-  // we just need to rotate it so its axis aligns with -SUN_DIR.
   const sunAngleDeg = Math.atan2(SUN_DIR.y, SUN_DIR.x) * 180 / Math.PI;
   const night = svgEl('circle', {
     class: 'earth3d-night', cx: 0, cy: 0, r: EARTH_R,
@@ -2510,7 +2520,7 @@ function renderEarth3D(ang) {
   for (const [lng, lat] of EARTH_NIGHT_CITIES) {
     const p = _projLngLat(lng, lat, ang);
     if (!p.vis) continue;
-    if (p.lit > 0.1) continue;   // sun side: hide
+    if (p.lit > 0.1) continue;
     const opacity = clamp((-p.lit + 0.05) * 1.4, 0.2, 1.0);
     cityG.appendChild(svgEl('circle', {
       cx: p.sx.toFixed(1), cy: p.sy.toFixed(1),
@@ -2523,6 +2533,258 @@ function renderEarth3D(ang) {
   const limb = svgEl('circle', { class: 'earth3d-limb', cx: 0, cy: 0, r: EARTH_R });
   limb.setAttribute('clip-path', 'url(#earth3d-clip)');
   g.appendChild(limb);
+}
+
+// === WebGL textured Earth ===
+// Wraps the project's worldmap.png onto a real 3D-projected sphere with
+// per-fragment sun lighting and a Fresnel-based atmospheric rim. Renders into
+// a canvas hosted inside a <foreignObject> so it sits in SVG world coords —
+// the canvas pans and zooms with the rest of the orbital scene.
+const _earth3d = {
+  mode: 'init',     // 'init' | 'webgl' | 'svg'
+  gl: null, program: null, mesh: null, texture: null,
+  foreign: null, canvas: null,
+  uMVP: null, uModel: null, uSunDir: null, uDayTex: null,
+  aPos: 0, aNorm: 0, aUV: 0,
+  textureReady: false,
+};
+
+function _earthCompileShader(gl, type, src) {
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, src);
+  gl.compileShader(sh);
+  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
+    console.warn('Earth shader compile failed:', gl.getShaderInfoLog(sh));
+    gl.deleteShader(sh);
+    return null;
+  }
+  return sh;
+}
+
+// UV-sphere mesh, north pole at +Y. Returns interleaved-attribute buffers.
+function _earthBuildSphereMesh(gl, stacks, slices) {
+  const positions = [], uvs = [], normals = [], indices = [];
+  for (let i = 0; i <= stacks; i++) {
+    const phi = i * Math.PI / stacks;
+    const v = i / stacks;             // 0 at north pole, 1 at south pole
+    for (let j = 0; j <= slices; j++) {
+      const theta = j * 2 * Math.PI / slices;
+      const u = j / slices;
+      const x = Math.sin(phi) * Math.cos(theta);
+      const y = Math.cos(phi);
+      const z = Math.sin(phi) * Math.sin(theta);
+      positions.push(x, y, z);
+      normals.push(x, y, z);
+      uvs.push(u, v);
+    }
+  }
+  for (let i = 0; i < stacks; i++) {
+    for (let j = 0; j < slices; j++) {
+      const a = i * (slices + 1) + j;
+      const b = a + (slices + 1);
+      indices.push(a, b, a + 1);
+      indices.push(b, b + 1, a + 1);
+    }
+  }
+  const mkBuf = (data, Type, target) => {
+    const buf = gl.createBuffer();
+    gl.bindBuffer(target, buf);
+    gl.bufferData(target, new Type(data), gl.STATIC_DRAW);
+    return buf;
+  };
+  return {
+    posBuf:  mkBuf(positions, Float32Array, gl.ARRAY_BUFFER),
+    normBuf: mkBuf(normals,   Float32Array, gl.ARRAY_BUFFER),
+    uvBuf:   mkBuf(uvs,       Float32Array, gl.ARRAY_BUFFER),
+    idxBuf:  mkBuf(indices,   Uint16Array,  gl.ELEMENT_ARRAY_BUFFER),
+    indexCount: indices.length,
+  };
+}
+
+// Combined Model+View+Projection: orthographic projection that scales the
+// unit sphere to fit in clip space [-s, +s], rotated by angleY around the
+// vertical axis and tilted by tiltX around the horizontal axis.
+function _earthMVPMatrix(angleY, tiltX, scale) {
+  const cy = Math.cos(angleY), sy = Math.sin(angleY);
+  const cx = Math.cos(tiltX),  sx = Math.sin(tiltX);
+  const s = scale;
+  // Column-major. Derivation: ScaleByS * TiltX * RotY * vertex.
+  return new Float32Array([
+    // column 0 → x
+    s*cy,       s*sx*sy,    -s*cx*sy,   0,
+    // column 1 → y
+    0,          s*cx,        s*sx,      0,
+    // column 2 → z (depth; used for cull but not visible in orthographic)
+    s*sy,      -s*sx*cy,     s*cx*cy,   0,
+    // column 3 → translation
+    0,          0,           0,         1,
+  ]);
+}
+function _earthModelMatrix(angleY, tiltX) {
+  return _earthMVPMatrix(angleY, tiltX, 1);  // same rotation, no scale
+}
+
+function initEarthWebGL(parentGroup) {
+  if (_earth3d.mode !== 'init') return _earth3d.mode === 'webgl';
+  try {
+    const foreign = document.createElementNS('http://www.w3.org/2000/svg', 'foreignObject');
+    foreign.setAttribute('x', -260);
+    foreign.setAttribute('y', -260);
+    foreign.setAttribute('width', 520);
+    foreign.setAttribute('height', 520);
+    foreign.setAttribute('id', 'earth3d-foreign');
+
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const canvas = document.createElement('canvas');
+    canvas.width  = 520 * dpr;
+    canvas.height = 520 * dpr;
+    canvas.style.width  = '520px';
+    canvas.style.height = '520px';
+    canvas.style.display = 'block';
+
+    const gl = canvas.getContext('webgl', { alpha: true, antialias: true, premultipliedAlpha: false });
+    if (!gl) { _earth3d.mode = 'svg'; return false; }
+
+    const vs = _earthCompileShader(gl, gl.VERTEX_SHADER, `
+      attribute vec3 aPos;
+      attribute vec3 aNorm;
+      attribute vec2 aUV;
+      uniform mat4 uMVP;
+      uniform mat4 uModel;
+      varying vec2 vUV;
+      varying vec3 vNorm;
+      void main() {
+        vUV = aUV;
+        vNorm = (uModel * vec4(aNorm, 0.0)).xyz;
+        gl_Position = uMVP * vec4(aPos, 1.0);
+      }
+    `);
+    const fs = _earthCompileShader(gl, gl.FRAGMENT_SHADER, `
+      precision mediump float;
+      varying vec2 vUV;
+      varying vec3 vNorm;
+      uniform sampler2D uDayTex;
+      uniform vec3 uSunDir;
+      void main() {
+        vec3 N = normalize(vNorm);
+        vec3 V = vec3(0.0, 0.0, 1.0);     // orthographic view direction
+        float sunDot = dot(N, uSunDir);
+        vec3 day = texture2D(uDayTex, vUV).rgb;
+        float dayMix = smoothstep(-0.20, 0.30, sunDot);
+        // Night side: heavily dimmed surface with a faint blue tint, but
+        // preserve relative brightness so coastlines / lights stay readable.
+        vec3 night = day * 0.18 + vec3(0.012, 0.022, 0.055);
+        vec3 surface = mix(night, day, dayMix);
+        // Atmospheric rim (Fresnel-style), tinted by how lit the limb is.
+        float fresnel = pow(1.0 - max(dot(N, V), 0.0), 2.5);
+        vec3 atmos = vec3(0.40, 0.70, 1.0) * fresnel * (0.45 + 0.55 * dayMix);
+        gl_FragColor = vec4(surface + atmos, 1.0);
+      }
+    `);
+    if (!vs || !fs) { _earth3d.mode = 'svg'; return false; }
+
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) {
+      console.warn('Earth program link failed:', gl.getProgramInfoLog(prog));
+      _earth3d.mode = 'svg';
+      return false;
+    }
+
+    const mesh = _earthBuildSphereMesh(gl, 48, 96);
+
+    // Placeholder texture (dark blue ocean) until the photo loads.
+    const tex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE,
+      new Uint8Array([15, 50, 95, 255]));
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);          // wrap longitudinally
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);   // clamp at poles
+
+    // Async-load the equirectangular Earth photo from disk. Try a few names.
+    const tryNext = (candidates) => {
+      if (!candidates.length) return;
+      const img = new Image();
+      img.onload = () => {
+        gl.bindTexture(gl.TEXTURE_2D, tex);
+        gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+        _earth3d.textureReady = true;
+        if (state.viewMode === 'space') renderEarth3D(_orbitAnim.earthAngle);
+      };
+      img.onerror = () => tryNext(candidates.slice(1));
+      img.src = candidates[0];
+    };
+    tryNext(['worldmap.jpg', 'worldmap.png', 'worldmap.webp']);
+
+    foreign.appendChild(canvas);
+    // Clear any existing SVG land/night layers — WebGL handles the surface.
+    parentGroup.innerHTML = '';
+    parentGroup.appendChild(foreign);
+
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.clearColor(0, 0, 0, 0);
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
+    gl.enable(gl.CULL_FACE);
+    gl.cullFace(gl.BACK);
+
+    _earth3d.gl = gl;
+    _earth3d.program = prog;
+    _earth3d.mesh = mesh;
+    _earth3d.texture = tex;
+    _earth3d.foreign = foreign;
+    _earth3d.canvas = canvas;
+    _earth3d.uMVP    = gl.getUniformLocation(prog, 'uMVP');
+    _earth3d.uModel  = gl.getUniformLocation(prog, 'uModel');
+    _earth3d.uSunDir = gl.getUniformLocation(prog, 'uSunDir');
+    _earth3d.uDayTex = gl.getUniformLocation(prog, 'uDayTex');
+    _earth3d.aPos    = gl.getAttribLocation(prog, 'aPos');
+    _earth3d.aNorm   = gl.getAttribLocation(prog, 'aNorm');
+    _earth3d.aUV     = gl.getAttribLocation(prog, 'aUV');
+
+    _earth3d.mode = 'webgl';
+    return true;
+  } catch (e) {
+    console.warn('Earth WebGL init failed:', e);
+    _earth3d.mode = 'svg';
+    return false;
+  }
+}
+
+function renderEarth3D_WebGL(angleY) {
+  const { gl, program, mesh, texture, uMVP, uModel, uSunDir, uDayTex, aPos, aNorm, aUV } = _earth3d;
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.useProgram(program);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, mesh.posBuf);
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, mesh.normBuf);
+  gl.enableVertexAttribArray(aNorm);
+  gl.vertexAttribPointer(aNorm, 3, gl.FLOAT, false, 0, 0);
+
+  gl.bindBuffer(gl.ARRAY_BUFFER, mesh.uvBuf);
+  gl.enableVertexAttribArray(aUV);
+  gl.vertexAttribPointer(aUV, 2, gl.FLOAT, false, 0, 0);
+
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, mesh.idxBuf);
+
+  const sphereR = 0.92;                                          // leave a margin for the rim glow
+  gl.uniformMatrix4fv(uMVP,   false, _earthMVPMatrix(angleY, EARTH_TILT, sphereR));
+  gl.uniformMatrix4fv(uModel, false, _earthModelMatrix(angleY, EARTH_TILT));
+  // SUN_DIR is in SVG coords (y down). WebGL world is y-up — flip y.
+  gl.uniform3f(uSunDir, SUN_DIR.x, -SUN_DIR.y, SUN_DIR.z);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.uniform1i(uDayTex, 0);
+
+  gl.drawElements(gl.TRIANGLES, mesh.indexCount, gl.UNSIGNED_SHORT, 0);
 }
 
 // === 3D-projected orbital rings ===
@@ -4441,6 +4703,7 @@ function setViewMode(mode) {
   else if (state.viewMode === 'space')     state.spaceView = { pan: { ...state.view.pan }, zoom: state.view.zoom };
   else if (state.viewMode === 'deepspace') state.deepView  = { pan: { ...state.view.pan }, zoom: state.view.zoom };
   state.viewMode = mode;
+  if (mode === 'city') ensureDefaultCity(true);
   // Restore target viewport
   state.view =
     mode === 'world'     ? { pan: { ...state.worldView.pan }, zoom: state.worldView.zoom } :
@@ -5739,19 +6002,20 @@ function loadFromJson(obj) {
   if (obj.cityView) state.cityView = obj.cityView;
   if (obj.viewMode) state.viewMode = obj.viewMode;
   ensureDefaultSite();
-  ensureDefaultCity();
+  ensureDefaultCity(state.viewMode === 'city');
   state.selectedIds.clear();
   document.body.classList.toggle('world-mode', state.viewMode === 'world');
   document.body.classList.toggle('city-mode',  state.viewMode === 'city');
   dom.svg.classList.toggle('world-mode', state.viewMode === 'world');
   dom.svg.classList.toggle('city-mode',  state.viewMode === 'city');
+  syncTileMap();
   updateWorldTransform();
   renderAll();
 }
 
-function ensureDefaultCity() {
+function ensureDefaultCity(force = false) {
   // Ensure endpoints' cityIds point to valid cities
-  if (state.cities.length === 0 && state.endpoints.length > 0) {
+  if (state.cities.length === 0 && (force || state.endpoints.length > 0)) {
     state.cities.push({
       id: uid(), name: 'Default City',
       centerLat: 40.71, centerLng: -74.00, mapW: 2000, mapH: 1400,
@@ -8294,7 +8558,7 @@ async function init() {
   const restored = tryRestoreAutosave();
   if (!restored) seedExample();
   ensureDefaultSite();
-  ensureDefaultCity();
+  ensureDefaultCity(state.viewMode === 'city');
   updateGridVisibility();
   // Restore Live Map setting (default ON)
   try {
@@ -8311,6 +8575,7 @@ async function init() {
   dom.svg.classList.toggle('deepspace-mode', state.viewMode === 'deepspace');
   updateViewToggleButtons();
   updateWorldTransform();
+  syncTileMap();
   renderAll();
   // Kick off the Orbit rotation loop if we restored a session already in
   // Orbit view (setViewMode normally does this; init bypasses it).
