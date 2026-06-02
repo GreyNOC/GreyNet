@@ -68,6 +68,9 @@ logs/
 coverage/
 .nyc_output/
 *.lcov
+test-results/
+playwright-report/
+playwright/.cache/
 
 # === User-generated content the user may drop into the project root ===
 # (worldmap.png is intentionally tracked — it's the default Earth photo.)

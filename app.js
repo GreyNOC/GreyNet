@@ -20,20 +20,31 @@ function anyById(id) {
   return deviceById(id) || linkById(id) || zoneById(id)
       || siteById(id) || siteLinkById(id)
       || endpointById(id) || cityLinkById(id) || cityById(id)
-      || spaceAssetById(id) || spaceLinkById(id);
+      || spaceAssetById(id) || spaceLinkById(id)
+      || planetInfraByIdSafe(id)
+      || deepSpaceUnitByIdSafe(id)
+      || deepSpaceLinkByIdSafe(id);
 }
+// Defensive accessors — file-load order means these may be called before
+// the renderers below define their own. Inline copies that fall back gracefully.
+function planetInfraByIdSafe(id)   { return (state.planetInfra   || []).find(p => p.id === id); }
+function deepSpaceUnitByIdSafe(id) { return (state.deepSpaceUnits || []).find(u => u.id === id); }
+function deepSpaceLinkByIdSafe(id) { return (state.deepSpaceLinks || []).find(l => l.id === id); }
 function typeOf(item) {
   if (!item) return null;
-  if (item.fromAssetId && item.toAssetId)       return 'spacelink';
-  if (item.type && SPACE_ASSET_TYPES[item.type]) return 'spaceasset';
-  if (item.fromEpId && item.toEpId)             return 'citylink';
-  if (item.type && ENDPOINT_TYPES[item.type])   return 'endpoint';
-  if (item.centerLat != null)                   return 'city';
-  if (item.lat != null && item.lng != null)     return 'site';
-  if (item.fromSiteId && item.toSiteId)         return 'sitelink';
-  if (item.type && DEVICE_TYPES[item.type])     return 'device';
-  if (item.type && LINK_TYPES[item.type])       return 'link';
-  if (item.type && ZONE_TYPES[item.type])       return 'zone';
+  if (item.fromAssetId && item.toAssetId)         return 'spacelink';
+  if (item.type && SPACE_ASSET_TYPES[item.type])  return 'spaceasset';
+  if (item.fromEpId && item.toEpId)               return 'citylink';
+  if (item.type && ENDPOINT_TYPES[item.type])     return 'endpoint';
+  if (item.centerLat != null)                     return 'city';
+  if (item.type && typeof DEEP_SPACE_UNIT_TYPES !== 'undefined' && DEEP_SPACE_UNIT_TYPES[item.type]) return 'deepunit';
+  if (item.type && typeof DEEP_SPACE_LINK_TYPES !== 'undefined' && DEEP_SPACE_LINK_TYPES[item.type] && item.fromId && item.toId) return 'deeplink';
+  if (item.type && typeof PLANET_INFRA_TYPES !== 'undefined' && PLANET_INFRA_TYPES[item.type] && item.lat != null) return 'planetinfra';
+  if (item.lat != null && item.lng != null)       return 'site';
+  if (item.fromSiteId && item.toSiteId)           return 'sitelink';
+  if (item.type && DEVICE_TYPES[item.type])       return 'device';
+  if (item.type && LINK_TYPES[item.type])         return 'link';
+  if (item.type && ZONE_TYPES[item.type])         return 'zone';
   return null;
 }
 function screenToWorld(sx, sy) {
@@ -135,6 +146,47 @@ function renderPalette() {
   }
   html.push(`</div></div>`);
   html.push(`</div>`);
+
+  // === PLANET INFRA (world mode only) — global, non-site infrastructure ===
+  html.push(`<div class="pal-planetinfra">`);
+  html.push(`<div class="pal-section">`);
+  html.push(`<div class="pal-header"><span>Global Infrastructure</span><span class="chev">▾</span></div>`);
+  html.push(`<div class="pal-grid">`);
+  for (const [type, def] of Object.entries(PLANET_INFRA_TYPES)) {
+    html.push(
+      `<button class="pal-item" data-planetinfra-type="${type}" title="${def.label} - ${def.purpose}">` +
+      `<svg viewBox="0 0 80 80" style="color:${def.color}"><use href="#${def.icon}"/></svg>` +
+      `<span class="pal-label">${def.label}</span>` +
+      `</button>`
+    );
+  }
+  html.push(`</div></div></div>`);
+
+  // === DEEP SPACE UNITS (deepspace mode only) ===
+  html.push(`<div class="pal-deepspace">`);
+  html.push(`<div class="pal-section">`);
+  html.push(`<div class="pal-header"><span>Deep-Space Units</span><span class="chev">▾</span></div>`);
+  html.push(`<div class="pal-grid">`);
+  for (const [type, def] of Object.entries(DEEP_SPACE_UNIT_TYPES)) {
+    html.push(
+      `<button class="pal-item" data-deepunit-type="${type}" title="${def.label} - ${def.purpose}">` +
+      `<svg viewBox="0 0 80 80" style="color:${def.color}"><use href="#${def.icon}"/></svg>` +
+      `<span class="pal-label">${def.label}</span>` +
+      `</button>`
+    );
+  }
+  html.push(`</div></div>`);
+  html.push(`<div class="pal-section">`);
+  html.push(`<div class="pal-header"><span>Deep-Space Link Type</span><span class="chev">▾</span></div>`);
+  html.push(`<div class="pal-links">`);
+  for (const [type, def] of Object.entries(DEEP_SPACE_LINK_TYPES)) {
+    html.push(
+      `<button class="pal-link-btn ${type === state.activeDeepLinkType ? 'active' : ''}" data-deeplink-type="${type}">` +
+      `<span class="pal-link-swatch" style="background:${def.color}"></span>` +
+      `<span>${def.label}</span></button>`
+    );
+  }
+  html.push(`</div></div></div>`);
 
   // === SITES (world mode only) ===
   html.push(`<div class="pal-sites">`);
@@ -297,6 +349,38 @@ function renderPalette() {
       b.classList.add('active');
     });
   });
+  // Planet infra
+  dom.palette.querySelectorAll('.pal-item[data-planetinfra-type]').forEach(it => {
+    it.addEventListener('click', () => {
+      state.activePlanetInfraType = it.getAttribute('data-planetinfra-type');
+      state.activeNewSiteType = null;
+      dom.svg.classList.add('place-site');
+      const def = PLANET_INFRA_TYPES[state.activePlanetInfraType];
+      dom.sbModeHint.textContent = `Click on the world map to place a ${def.label}.`;
+      dom.palette.querySelectorAll('.pal-item[data-planetinfra-type]').forEach(x => x.style.background = '');
+      dom.palette.querySelectorAll('.pal-item[data-site-type]').forEach(x => x.style.background = '');
+      it.style.background = 'var(--bg-3)';
+    });
+  });
+  // Deep-space units
+  dom.palette.querySelectorAll('.pal-item[data-deepunit-type]').forEach(it => {
+    it.addEventListener('click', () => {
+      state.activeDeepUnitType = it.getAttribute('data-deepunit-type');
+      dom.svg.classList.add('place-site');
+      const def = DEEP_SPACE_UNIT_TYPES[state.activeDeepUnitType];
+      dom.sbModeHint.textContent = `Click in deep space to place a ${def.label}.`;
+      dom.palette.querySelectorAll('.pal-item[data-deepunit-type]').forEach(x => x.style.background = '');
+      it.style.background = 'var(--bg-3)';
+    });
+  });
+  // Deep-space link type
+  dom.palette.querySelectorAll('.pal-link-btn[data-deeplink-type]').forEach(b => {
+    b.addEventListener('click', () => {
+      state.activeDeepLinkType = b.getAttribute('data-deeplink-type');
+      dom.palette.querySelectorAll('.pal-link-btn[data-deeplink-type]').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+    });
+  });
 }
 
 function onPaletteDragStart(e) {
@@ -325,6 +409,7 @@ function renderAll() {
     renderWorldMap();
     renderSiteLinks();
     renderSites();
+    renderPlanetInfra();
   } else if (state.viewMode === 'city') {
     renderCityMap();
     renderCityLinks();
@@ -335,6 +420,7 @@ function renderAll() {
     renderSpaceAssets();
   } else if (state.viewMode === 'deepspace') {
     renderDeepSpace();
+    renderDeepSpaceUnits();
   } else {
     renderZones();
     renderLinks();
@@ -345,6 +431,8 @@ function renderAll() {
   renderEmptyState();
   updateCounts();
   updateSiteBar();
+  // Re-evaluate section progression and update toolbar / tray.
+  if (typeof progressionTick === 'function') progressionTick();
 }
 
 // === SPACE VIEW RENDERING ===
@@ -1246,13 +1334,44 @@ function renderEmptyState() {
     const cnt = state.devices.filter(d => d.siteId === s.id).length;
     actionsHtml += `<button data-go="${s.id}">→ ${escapeHtml(s.name)} (${cnt} devices)</button>`;
   }
-  actionsHtml += `<button class="primary" data-go-world>Open Planet view</button>`;
+  // True-empty state (no devices, no other populated sites) → offer demo or walkthrough.
+  const trulyEmpty = visible.length === 0 && populated.length === 0;
+  if (trulyEmpty) {
+    actionsHtml += `<button data-go-walkthrough>Open Guided Walkthrough</button>`;
+    actionsHtml += `<button class="primary" data-go-demo>Load demo network</button>`;
+  } else {
+    actionsHtml += `<button class="primary" data-go-world>Open Planet view</button>`;
+  }
   dom.emptyStateActions.innerHTML = actionsHtml;
   dom.emptyStateActions.querySelectorAll('[data-go]').forEach(b => {
     b.addEventListener('click', () => setActiveSite(b.getAttribute('data-go')));
   });
   dom.emptyStateActions.querySelector('[data-go-world]')?.addEventListener('click', () => setViewMode('world'));
+  dom.emptyStateActions.querySelector('[data-go-walkthrough]')?.addEventListener('click', () => {
+    if (typeof openWalkthrough === 'function') openWalkthrough(0);
+  });
+  dom.emptyStateActions.querySelector('[data-go-demo]')?.addEventListener('click', loadDemoNetwork);
   dom.emptyState.classList.remove('hidden');
+}
+
+// Populate the rich seed example on user demand.
+function loadDemoNetwork() {
+  if (state.devices.length || state.spaceAssets.length || state.cities.length > 1) {
+    if (!confirm('Loading the demo network will overwrite your current diagram. Continue?')) return;
+  }
+  pushHistory();
+  // Reset everything seedExample touches.
+  state.devices = []; state.links = []; state.zones = [];
+  state.sites = []; state.siteLinks = [];
+  state.cities = []; state.endpoints = []; state.cityLinks = [];
+  state.spaceAssets = []; state.spaceLinks = [];
+  state.planetInfra = [];
+  state.deepSpaceUnits = []; state.deepSpaceLinks = [];
+  seedExample();
+  ensureDefaultSite();
+  ensureDefaultCity(false);
+  state.selectedIds.clear();
+  renderAll();
 }
 
 function renderWorldMap() {
@@ -1530,6 +1649,160 @@ function renderSiteLinks() {
   }
 }
 
+/* =========================================================================
+   PLANET INFRASTRUCTURE — placed on world view by lat/lng. Distinct from
+   physical sites: these represent global mesh (CDN nodes, ground uplinks,
+   AI centers, etc.) without per-site internals.
+   ========================================================================= */
+function planetInfraById(id) {
+  return (state.planetInfra || []).find(p => p.id === id);
+}
+
+function renderPlanetInfra() {
+  const layer = dom.planetInfraLayer;
+  if (!layer) return;
+  layer.innerHTML = '';
+  if (state.viewMode !== 'world') return;
+  for (const pi of state.planetInfra) {
+    const def = PLANET_INFRA_TYPES[pi.type] || PLANET_INFRA_TYPES.global_dc;
+    const w = latLngToWorld(pi.lat, pi.lng);
+    const selected = state.selectedIds.has(pi.id);
+    const g = svgEl('g', {
+      class: 'pi-marker' + (selected ? ' selected' : ''),
+      transform: `translate(${w.x} ${w.y})`,
+      'data-id': pi.id, 'data-kind': 'planetinfra',
+    });
+    g.appendChild(svgEl('circle', { class: 'pi-bg', cx: 0, cy: 0, r: 18, stroke: def.color }));
+    g.appendChild(svgEl('use', {
+      class: 'pi-icon', href: '#' + def.icon, x: -13, y: -13, width: 26, height: 26
+    }));
+    const lbl = svgEl('text', { class: 'pi-label', x: 0, y: 32 });
+    lbl.textContent = pi.label || def.label;
+    g.appendChild(lbl);
+    const sub = svgEl('text', { class: 'pi-sub', x: 0, y: 44 });
+    sub.textContent = def.label;
+    g.appendChild(sub);
+    layer.appendChild(g);
+  }
+}
+
+/* =========================================================================
+   DEEP SPACE UNITS — placeable in deepspace view alongside the link-budget
+   studio. Each unit is positioned in synthetic deep-space coords (x,y).
+   ========================================================================= */
+function deepSpaceUnitById(id) {
+  return (state.deepSpaceUnits || []).find(u => u.id === id);
+}
+function deepSpaceLinkByIdLocal(id) {
+  return (state.deepSpaceLinks || []).find(l => l.id === id);
+}
+
+// Compute the rendered (x, y) of a deep-space unit. If `anchor` is set to a
+// known DS_TARGETS body, the unit is positioned RELATIVE to that body's live
+// position in the heliocentric system. Otherwise its absolute x/y is used.
+//   u.anchor      - body id from DS_TARGETS (e.g. 'mars', 'earth', 'jwst')
+//   u.anchorOffX  - radial-from-host offset (px in deep-space coords)
+//   u.anchorOffY  - tangential offset (px)
+// Falls back gracefully if the anchor body or ephemeris isn't available
+// (e.g. when this function runs before the heliocentric module loads).
+function resolveDeepUnitPosition(u, epoch = Date.now()) {
+  if (!u.anchor || typeof DS_TARGETS === 'undefined' || typeof dsPlanetAU !== 'function') {
+    return { x: u.x || 0, y: u.y || 0, anchored: false };
+  }
+  const body = DS_TARGETS[u.anchor];
+  if (!body) return { x: u.x || 0, y: u.y || 0, anchored: false };
+  // Resolve host planet's screen position the same way renderDeepSpace does.
+  let host = u.anchor;
+  if (body.kind === 'satellite' || body.kind === 'spacecraft') host = body.parent || 'earth';
+  if (host === 'sun') return { x: (u.anchorOffX || 0), y: (u.anchorOffY || 0), anchored: true };
+  let R = 200; let theta = 0;
+  try {
+    const hostDef = DS_TARGETS[host];
+    if (hostDef && hostDef.a != null) {
+      R = dsLogOrbitR(hostDef.a);
+      const ph = dsPlanetAU(host, epoch);
+      theta = Math.atan2(ph.y, ph.x);
+    }
+  } catch (_) { /* ignore — fall through to fallback */ }
+  const baseX = R * Math.cos(theta);
+  const baseY = R * Math.sin(theta);
+  // For sub-bodies (Moon/JWST) offset radially outward from host so multiple
+  // anchored units don't stack on the planet.
+  const radialOff = (body.kind === 'satellite' || body.kind === 'spacecraft') ? 30 : 0;
+  const offRadial = (u.anchorOffX || 0) + radialOff;
+  const offTangen = (u.anchorOffY || 0);
+  const cosT = Math.cos(theta), sinT = Math.sin(theta);
+  return {
+    x: baseX + cosT * offRadial - sinT * offTangen,
+    y: baseY + sinT * offRadial + cosT * offTangen,
+    anchored: true,
+  };
+}
+
+function renderDeepSpaceUnits() {
+  const layer = dom.deepSpaceUnitsLayer;
+  const linkLayer = dom.deepSpaceUnitlinksLayer;
+  if (!layer || !linkLayer) return;
+  layer.innerHTML = '';
+  linkLayer.innerHTML = '';
+  if (state.viewMode !== 'deepspace') return;
+
+  const epoch = (state.comms && state.comms.epochMs) || Date.now();
+  // Cache resolved positions so links use the same coords as units.
+  const pos = new Map();
+  for (const u of state.deepSpaceUnits) pos.set(u.id, resolveDeepUnitPosition(u, epoch));
+
+  // Draw links first so units render above them.
+  for (const lk of state.deepSpaceLinks) {
+    const a = deepSpaceUnitById(lk.fromId);
+    const b = deepSpaceUnitById(lk.toId);
+    if (!a || !b) continue;
+    const pa = pos.get(a.id) || { x: a.x, y: a.y };
+    const pb = pos.get(b.id) || { x: b.x, y: b.y };
+    const def = DEEP_SPACE_LINK_TYPES[lk.type] || DEEP_SPACE_LINK_TYPES.ds_laser;
+    const selected = state.selectedIds.has(lk.id);
+    const g = svgEl('g', { 'data-id': lk.id, 'data-kind': 'deeplink' });
+    g.appendChild(svgEl('line', {
+      class: 'ds-unitlink-hit', x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y
+    }));
+    const attrs = {
+      class: 'ds-unitlink' + (selected ? ' selected' : ''),
+      x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y,
+      stroke: def.color, 'stroke-width': def.width,
+    };
+    if (def.dash) attrs['stroke-dasharray'] = def.dash;
+    g.appendChild(svgEl('line', attrs));
+    linkLayer.appendChild(g);
+  }
+
+  // Units
+  for (const u of state.deepSpaceUnits) {
+    const def = DEEP_SPACE_UNIT_TYPES[u.type] || DEEP_SPACE_UNIT_TYPES.ds_relay;
+    const selected = state.selectedIds.has(u.id);
+    const pending  = state.pendingConnectId === u.id;
+    const p = pos.get(u.id) || { x: u.x, y: u.y };
+    const g = svgEl('g', {
+      class: 'ds-unit' + (selected ? ' selected' : '') + (pending ? ' connect-pending' : '') + (p.anchored ? ' anchored' : ''),
+      transform: `translate(${p.x} ${p.y})`,
+      'data-id': u.id, 'data-kind': 'deepunit'
+    });
+    g.appendChild(svgEl('circle', { class: 'du-halo', cx: 0, cy: 0, r: 28, stroke: def.color }));
+    g.appendChild(svgEl('circle', { class: 'du-bg',   cx: 0, cy: 0, r: 22, stroke: def.color }));
+    g.appendChild(svgEl('use', {
+      class: 'du-icon', href: '#' + def.icon, x: -16, y: -16, width: 32, height: 32
+    }));
+    const lbl = svgEl('text', { class: 'du-label', x: 0, y: 38 });
+    lbl.textContent = u.label || def.label;
+    g.appendChild(lbl);
+    const ty = svgEl('text', { class: 'du-type', x: 0, y: 50 });
+    const anchorTag = (u.anchor && typeof DS_TARGETS !== 'undefined' && DS_TARGETS[u.anchor])
+      ? ` · @ ${DS_TARGETS[u.anchor].label}` : '';
+    ty.textContent = def.label + anchorTag;
+    g.appendChild(ty);
+    layer.appendChild(g);
+  }
+}
+
 function formatLatLng(lat, lng) {
   const a = lat >= 0 ? 'N' : 'S';
   const o = lng >= 0 ? 'E' : 'W';
@@ -1738,14 +2011,144 @@ function renderProperties() {
   else if (kind === 'city') renderCityProperties(item);
   else if (kind === 'spaceasset') renderSpaceAssetProperties(item);
   else if (kind === 'spacelink') renderSpaceLinkProperties(item);
+  else if (kind === 'planetinfra') renderPlanetInfraProperties(item);
+  else if (kind === 'deepunit') renderDeepUnitProperties(item);
+  else if (kind === 'deeplink') renderDeepLinkProperties(item);
 
   dom.prActions.style.display = 'flex';
+}
+
+function renderPlanetInfraProperties(pi) {
+  const def = PLANET_INFRA_TYPES[pi.type] || PLANET_INFRA_TYPES.global_dc;
+  dom.prType.textContent = def.label;
+  let html = '';
+  html += `<div class="unit-purpose">${escapeHtml(def.purpose)}</div>`;
+  html += `<div class="pr-field"><label>Label</label><input data-key="label" type="text" value="${escapeHtml(pi.label || '')}"/></div>`;
+  html += `<div class="pr-field"><label>Type</label><select data-key="type">` +
+    Object.entries(PLANET_INFRA_TYPES).map(([k, v]) =>
+      `<option value="${k}" ${k === pi.type ? 'selected' : ''}>${v.label}</option>`).join('') +
+    `</select></div>`;
+  html += `<div class="pr-field-row">` +
+    `<div class="pr-field"><label>Latitude</label><input data-key="lat" data-num="1" type="number" step="0.01" value="${(pi.lat || 0).toFixed(2)}"/></div>` +
+    `<div class="pr-field"><label>Longitude</label><input data-key="lng" data-num="1" type="number" step="0.01" value="${(pi.lng || 0).toFixed(2)}"/></div>` +
+    `</div>`;
+  const p = pi.props || {};
+  for (const [k, v] of Object.entries(p)) {
+    html += `<div class="pr-field"><label>${escapeHtml(k.charAt(0).toUpperCase() + k.slice(1))}</label>` +
+      `<input data-key="${escapeHtml(k)}" data-prop="1" type="text" value="${escapeHtml(v)}"/></div>`;
+  }
+  dom.prBody.innerHTML = html;
+  dom.prBody.querySelectorAll('input, select').forEach(inp => {
+    inp.addEventListener('change', () => {
+      pushHistory();
+      const key = inp.getAttribute('data-key');
+      if (inp.getAttribute('data-prop')) { pi.props = pi.props || {}; pi.props[key] = inp.value; }
+      else if (inp.getAttribute('data-num')) { pi[key] = Number(inp.value) || 0; }
+      else { pi[key] = inp.value; }
+      renderAll();
+    });
+  });
+}
+
+function renderDeepUnitProperties(u) {
+  const def = DEEP_SPACE_UNIT_TYPES[u.type] || DEEP_SPACE_UNIT_TYPES.ds_relay;
+  dom.prType.textContent = def.label;
+  let html = '';
+  html += `<div class="unit-purpose">${escapeHtml(def.purpose)}</div>`;
+  if (def.stats) {
+    html += `<div class="stats-grid">`;
+    if (def.stats.range_au)   html += `<span class="k">Range</span><span class="v">${def.stats.range_au} AU</span>`;
+    if (def.stats.bandwidth)  html += `<span class="k">Bandwidth</span><span class="v">${escapeHtml(def.stats.bandwidth)}</span>`;
+    if (def.stats.power_w)    html += `<span class="k">Power</span><span class="v">${def.stats.power_w.toLocaleString()} W</span>`;
+    if (def.stats.security)   html += `<span class="k">Security</span><span class="v">${escapeHtml(def.stats.security)}</span>`;
+    html += `</div>`;
+  }
+  html += `<div class="pr-field"><label>Label</label><input data-key="label" type="text" value="${escapeHtml(u.label || '')}"/></div>`;
+  html += `<div class="pr-field"><label>Type</label><select data-key="type">` +
+    Object.entries(DEEP_SPACE_UNIT_TYPES).map(([k, v]) =>
+      `<option value="${k}" ${k === u.type ? 'selected' : ''}>${v.label}</option>`).join('') +
+    `</select></div>`;
+  // Anchor selector: tie this unit to a heliocentric body so its position
+  // updates as the body moves. "None" = use absolute x/y.
+  if (typeof DS_TARGETS !== 'undefined') {
+    const anchorOptions = Object.entries(DS_TARGETS)
+      .filter(([k, v]) => v.kind !== 'custom')
+      .map(([k, v]) => `<option value="${k}" ${k === u.anchor ? 'selected' : ''}>${escapeHtml(v.label)}</option>`)
+      .join('');
+    html += `<div class="pr-field"><label>Anchor to body</label><select data-key="anchor">` +
+      `<option value="">— No anchor (absolute) —</option>${anchorOptions}` +
+      `</select></div>`;
+    if (u.anchor) {
+      html += `<div class="pr-field-row">` +
+        `<div class="pr-field"><label>Radial offset</label><input data-key="anchorOffX" data-num="1" type="number" step="5" value="${u.anchorOffX || 0}"/></div>` +
+        `<div class="pr-field"><label>Tangential offset</label><input data-key="anchorOffY" data-num="1" type="number" step="5" value="${u.anchorOffY || 0}"/></div>` +
+        `</div>`;
+    }
+  }
+  const p = u.props || {};
+  for (const [k, v] of Object.entries(p)) {
+    html += `<div class="pr-field"><label>${escapeHtml(k.charAt(0).toUpperCase() + k.slice(1))}</label>` +
+      `<input data-key="${escapeHtml(k)}" data-prop="1" type="text" value="${escapeHtml(v)}"/></div>`;
+  }
+  // Show linked unit count
+  const linkCount = state.deepSpaceLinks.filter(l => l.fromId === u.id || l.toId === u.id).length;
+  html += `<div class="pr-field"><label>Linked units</label><input value="${linkCount}" disabled/></div>`;
+  dom.prBody.innerHTML = html;
+  dom.prBody.querySelectorAll('input, select').forEach(inp => {
+    inp.addEventListener('change', () => {
+      pushHistory();
+      const key = inp.getAttribute('data-key');
+      if (inp.getAttribute('data-prop')) { u.props = u.props || {}; u.props[key] = inp.value; }
+      else if (inp.getAttribute('data-num')) { u[key] = Number(inp.value) || 0; }
+      else if (key === 'anchor') {
+        u.anchor = inp.value || null;
+        // When anchoring for the first time, zero offsets — user can dial them in.
+        if (u.anchor && u.anchorOffX == null) u.anchorOffX = 0;
+        if (u.anchor && u.anchorOffY == null) u.anchorOffY = 0;
+      }
+      else { u[key] = inp.value; }
+      renderAll();
+    });
+  });
+}
+
+function renderDeepLinkProperties(lk) {
+  const def = DEEP_SPACE_LINK_TYPES[lk.type] || DEEP_SPACE_LINK_TYPES.ds_laser;
+  dom.prType.textContent = def.label;
+  let html = '';
+  html += `<div class="pr-field"><label>Label</label><input data-key="label" type="text" value="${escapeHtml(lk.label || '')}"/></div>`;
+  html += `<div class="pr-field"><label>Type</label><select data-key="type">` +
+    Object.entries(DEEP_SPACE_LINK_TYPES).map(([k, v]) =>
+      `<option value="${k}" ${k === lk.type ? 'selected' : ''}>${v.label}</option>`).join('') +
+    `</select></div>`;
+  const from = deepSpaceUnitByIdSafe(lk.fromId);
+  const to   = deepSpaceUnitByIdSafe(lk.toId);
+  html += `<div class="pr-field"><label>From</label><input value="${escapeHtml(from ? from.label : lk.fromId)}" disabled/></div>`;
+  html += `<div class="pr-field"><label>To</label><input value="${escapeHtml(to ? to.label : lk.toId)}" disabled/></div>`;
+  dom.prBody.innerHTML = html;
+  dom.prBody.querySelectorAll('input, select').forEach(inp => {
+    inp.addEventListener('change', () => {
+      pushHistory();
+      const key = inp.getAttribute('data-key');
+      lk[key] = inp.value;
+      renderAll();
+    });
+  });
 }
 
 function renderSpaceAssetProperties(a) {
   const def = SPACE_ASSET_TYPES[a.type];
   dom.prType.textContent = def.label;
   let html = '';
+  if (def.purpose) html += `<div class="unit-purpose">${escapeHtml(def.purpose)}</div>`;
+  if (def.stats) {
+    html += `<div class="stats-grid">`;
+    if (def.stats.coverage_km) html += `<span class="k">Coverage</span><span class="v">${def.stats.coverage_km.toLocaleString()} km</span>`;
+    if (def.stats.bandwidth)   html += `<span class="k">Bandwidth</span><span class="v">${escapeHtml(def.stats.bandwidth)}</span>`;
+    if (def.stats.power_w)     html += `<span class="k">Power</span><span class="v">${def.stats.power_w.toLocaleString()} W</span>`;
+    if (def.stats.security)    html += `<span class="k">Security</span><span class="v">${escapeHtml(def.stats.security)}</span>`;
+    html += `</div>`;
+  }
   html += `<div class="pr-field"><label>Label</label><input data-key="label" type="text" value="${escapeHtml(a.label || '')}"/></div>`;
   html += `<div class="pr-field"><label>Type</label><select data-key="type">` +
     Object.entries(SPACE_ASSET_TYPES).map(([k, v]) =>
@@ -2285,6 +2688,73 @@ dom.svg.addEventListener('mousedown', (e) => {
     return;
   }
 
+  // === DEEP SPACE VIEW interactions (placeable units + links) ===
+  if (state.viewMode === 'deepspace') {
+    // Place new deep-space unit
+    if (state.activeDeepUnitType && !hitEl) {
+      pushHistory();
+      const def = DEEP_SPACE_UNIT_TYPES[state.activeDeepUnitType];
+      const n = state.deepSpaceUnits.filter(u => u.type === state.activeDeepUnitType).length + 1;
+      const u = {
+        id: uid(), type: state.activeDeepUnitType,
+        label: `${def.label} ${n}`,
+        x: snap(world.x), y: snap(world.y),
+        props: { range: def.stats?.range_au ? `${def.stats.range_au} AU` : '', bandwidth: def.stats?.bandwidth || '', power: def.stats?.power_w ? `${def.stats.power_w} W` : '', security: def.stats?.security || '', notes:'' },
+      };
+      state.deepSpaceUnits.push(u);
+      state.activeDeepUnitType = null;
+      dom.svg.classList.remove('place-site');
+      dom.palette.querySelectorAll('.pal-item[data-deepunit-type]').forEach(x => x.style.background = '');
+      state.selectedIds.clear(); state.selectedIds.add(u.id);
+      renderAll();
+      return;
+    }
+    // Connect mode: link two deep-space units
+    if (state.mode === 'connect') {
+      if (kind !== 'deepunit') return;
+      if (!state.pendingConnectId) {
+        state.pendingConnectId = id;
+        renderDeepSpaceUnits();
+      } else if (state.pendingConnectId !== id) {
+        pushHistory();
+        state.deepSpaceLinks.push({
+          id: uid(), fromId: state.pendingConnectId, toId: id,
+          type: state.activeDeepLinkType, label: ''
+        });
+        state.pendingConnectId = null;
+        clearOverlay();
+        renderAll();
+      }
+      return;
+    }
+    // Select unit
+    if (hitEl && kind === 'deepunit') {
+      if (e.shiftKey) {
+        if (state.selectedIds.has(id)) state.selectedIds.delete(id);
+        else state.selectedIds.add(id);
+      } else if (!state.selectedIds.has(id)) { state.selectedIds.clear(); state.selectedIds.add(id); }
+      renderAll();
+      pushHistory();
+      drag = {
+        kind: 'deepunit-move', startWorld: world,
+        items: [...state.selectedIds].map(uid_ => {
+          const u = deepSpaceUnitById(uid_);
+          if (!u) return null;
+          return { id: uid_, startX: u.x, startY: u.y };
+        }).filter(Boolean),
+      };
+      return;
+    }
+    if (hitEl && kind === 'deeplink') {
+      state.selectedIds.clear(); state.selectedIds.add(id);
+      renderAll();
+      return;
+    }
+    state.selectedIds.clear();
+    renderAll();
+    return;
+  }
+
   // === CITY VIEW interactions (image backend uses SVG; OSM uses Leaflet) ===
   if (state.viewMode === 'city') {
     const city = cityById(state.activeCityId);
@@ -2371,6 +2841,36 @@ dom.svg.addEventListener('mousedown', (e) => {
 
   // === WORLD VIEW interactions ===
   if (state.viewMode === 'world') {
+    // Place global infrastructure marker (data center, ground uplink, etc.)
+    if (state.activePlanetInfraType && !hitEl) {
+      const ll = worldToLatLng(world.x, world.y);
+      if (ll.lat > 85 || ll.lat < -85 || ll.lng < -180 || ll.lng > 180) return;
+      pushHistory();
+      const def = PLANET_INFRA_TYPES[state.activePlanetInfraType];
+      const n = state.planetInfra.filter(p => p.type === state.activePlanetInfraType).length + 1;
+      const pi = {
+        id: uid(), type: state.activePlanetInfraType,
+        label: `${def.label} ${n}`,
+        lat: ll.lat, lng: ll.lng,
+        props: deepClone(def.defaultProps || {}),
+      };
+      state.planetInfra.push(pi);
+      state.activePlanetInfraType = null;
+      dom.svg.classList.remove('place-site');
+      dom.palette.querySelectorAll('.pal-item[data-planetinfra-type]').forEach(x => x.style.background = '');
+      state.selectedIds.clear(); state.selectedIds.add(pi.id);
+      renderAll();
+      return;
+    }
+    // Select planet-infra marker
+    if (hitEl && kind === 'planetinfra') {
+      if (e.shiftKey) {
+        if (state.selectedIds.has(id)) state.selectedIds.delete(id);
+        else state.selectedIds.add(id);
+      } else if (!state.selectedIds.has(id)) { state.selectedIds.clear(); state.selectedIds.add(id); }
+      renderAll();
+      return;
+    }
     // place-site mode: clicking empty world drops a new site
     if (state.activeNewSiteType && !hitEl) {
       const ll = worldToLatLng(world.x, world.y);
@@ -2579,6 +3079,16 @@ dom.svg.addEventListener('mousemove', (e) => {
         renderSpaceAssets();
         renderSpaceLinks();
       }
+    } else if (drag.kind === 'deepunit-move') {
+      const dx = world.x - drag.startWorld.x;
+      const dy = world.y - drag.startWorld.y;
+      for (const it of drag.items) {
+        const u = deepSpaceUnitById(it.id);
+        if (!u) continue;
+        u.x = snap(it.startX + dx);
+        u.y = snap(it.startY + dy);
+      }
+      renderDeepSpaceUnits();
     }
   }
 
@@ -2854,6 +3364,8 @@ let _savedLocalView = { pan: { x: 0, y: 0 }, zoom: 1 };
 
 function setViewMode(mode) {
   if (mode === state.viewMode) return;
+  // Section progression gate: refuse locked sections.
+  if (typeof progressionCanEnter === 'function' && !progressionCanEnter(mode)) return;
   // Save current viewport
   if (state.viewMode === 'local')          _savedLocalView = { pan: { ...state.view.pan }, zoom: state.view.zoom };
   else if (state.viewMode === 'world')     state.worldView = { pan: { ...state.view.pan }, zoom: state.view.zoom };
@@ -3694,6 +4206,11 @@ function deleteSelection() {
   state.spaceAssets = state.spaceAssets.filter(a => !ids.has(a.id));
   state.spaceLinks = state.spaceLinks.filter(l => !ids.has(l.id)
     && spaceAssetById(l.fromAssetId) && spaceAssetById(l.toAssetId));
+  // Planet-infra + deep-space deletes
+  state.planetInfra    = (state.planetInfra    || []).filter(p => !ids.has(p.id));
+  state.deepSpaceUnits = (state.deepSpaceUnits || []).filter(u => !ids.has(u.id));
+  state.deepSpaceLinks = (state.deepSpaceLinks || []).filter(l => !ids.has(l.id)
+    && deepSpaceUnitByIdSafe(l.fromId) && deepSpaceUnitByIdSafe(l.toId));
   if (state.activeSiteId && deletedSiteIds.has(state.activeSiteId)) {
     state.activeSiteId = state.sites[0] ? state.sites[0].id : null;
   }
@@ -3949,6 +4466,13 @@ function diagramToJson() {
     cityLinks: state.cityLinks,
     spaceAssets: state.spaceAssets,
     spaceLinks: state.spaceLinks,
+    // === New: planet-level global infrastructure ===
+    planetInfra: state.planetInfra,
+    // === New: deep-space placeable mesh ===
+    deepSpaceUnits: state.deepSpaceUnits,
+    deepSpaceLinks: state.deepSpaceLinks,
+    // === New: section progression / unlock state ===
+    progression: state.progression,
     // Deep Space link studio configuration (per-diagram, not per-machine).
     comms: state.comms,
   };
@@ -4120,8 +4644,64 @@ function sanitizeDiagram(obj) {
     label: cleanString(sl.label),
   })).filter(sl => spaceAssetIds.has(sl.fromAssetId) && spaceAssetIds.has(sl.toAssetId));
 
+  // === New: planet-level global infrastructure ===
+  const planetInfraTbl = (typeof PLANET_INFRA_TYPES !== 'undefined') ? PLANET_INFRA_TYPES : {};
+  const planetInfra = cleanArray(obj.planetInfra).map(pi => ({
+    id: cleanId(pi.id),
+    type: planetInfraTbl[pi.type] ? pi.type : Object.keys(planetInfraTbl)[0] || 'global_dc',
+    label: cleanString(pi.label || 'Infrastructure'),
+    lat: clampNum(pi.lat, -90, 90, 0),
+    lng: clampNum(pi.lng, -180, 180, 0),
+    props: cleanProps(pi.props),
+  })).filter(pi => planetInfraTbl[pi.type]);
+
+  // === New: deep-space placeable units + links ===
+  const dsUnitTbl = (typeof DEEP_SPACE_UNIT_TYPES !== 'undefined') ? DEEP_SPACE_UNIT_TYPES : {};
+  const dsLinkTbl = (typeof DEEP_SPACE_LINK_TYPES !== 'undefined') ? DEEP_SPACE_LINK_TYPES : {};
+  const dsAnchorIds = (typeof DS_TARGETS !== 'undefined') ? Object.keys(DS_TARGETS) : [];
+  const deepSpaceUnits = cleanArray(obj.deepSpaceUnits).map(u => ({
+    id: cleanId(u.id),
+    type: dsUnitTbl[u.type] ? u.type : Object.keys(dsUnitTbl)[0] || 'ds_relay',
+    label: cleanString(u.label || 'Unit'),
+    x: clampNum(u.x, -10000, 10000),
+    y: clampNum(u.y, -10000, 10000),
+    // Optional anchor: planet/spacecraft id from DS_TARGETS, plus offsets.
+    anchor: (u.anchor && dsAnchorIds.includes(u.anchor)) ? u.anchor : null,
+    anchorOffX: clampNum(u.anchorOffX, -1000, 1000, 0),
+    anchorOffY: clampNum(u.anchorOffY, -1000, 1000, 0),
+    props: cleanProps(u.props),
+  })).filter(u => dsUnitTbl[u.type]);
+  const dsUnitIds = new Set(deepSpaceUnits.map(u => u.id));
+  const deepSpaceLinks = cleanArray(obj.deepSpaceLinks).map(l => ({
+    id: cleanId(l.id),
+    fromId: cleanString(l.fromId, 96),
+    toId: cleanString(l.toId, 96),
+    type: dsLinkTbl[l.type] ? l.type : Object.keys(dsLinkTbl)[0] || 'ds_laser',
+    label: cleanString(l.label),
+  })).filter(l => dsUnitIds.has(l.fromId) && dsUnitIds.has(l.toId));
+
+  // Progression — be lenient: any malformed value falls back to defaults.
+  const progIn = obj.progression && typeof obj.progression === 'object' ? obj.progression : null;
+  const sections = ['local','city','planet','orbit','deepspace'];
+  function progBoolMap(src, defaultTrueIdx) {
+    const out = {};
+    for (let i = 0; i < sections.length; i++) {
+      const s = sections[i];
+      const v = src && typeof src === 'object' ? src[s] : undefined;
+      out[s] = typeof v === 'boolean' ? v : (i === defaultTrueIdx ? true : false);
+    }
+    return out;
+  }
+  const progression = progIn ? {
+    walkthroughDone: !!progIn.walkthroughDone,
+    walkthroughStep: clampNum(progIn.walkthroughStep, 0, 50, 0),
+    completed: progBoolMap(progIn.completed, -1),
+    unlocked:  progBoolMap(progIn.unlocked,   0),
+  } : null;
+
   return {
     devices, links, zones, sites, siteLinks, cities, endpoints, cityLinks, spaceAssets, spaceLinks,
+    planetInfra, deepSpaceUnits, deepSpaceLinks, progression,
     activeSiteId: siteIds.has(obj.activeSiteId) ? obj.activeSiteId : null,
     activeCityId: cityIds.has(obj.activeCityId) ? obj.activeCityId : null,
     viewMode: ['local', 'world', 'city', 'space', 'deepspace'].includes(obj.viewMode) ? obj.viewMode : 'local',
@@ -4184,6 +4764,10 @@ function loadFromJson(obj) {
   state.cityLinks = obj.cityLinks || [];
   state.spaceAssets = obj.spaceAssets || [];
   state.spaceLinks = obj.spaceLinks || [];
+  state.planetInfra = obj.planetInfra || [];
+  state.deepSpaceUnits = obj.deepSpaceUnits || [];
+  state.deepSpaceLinks = obj.deepSpaceLinks || [];
+  if (obj.progression) state.progression = obj.progression;
   state.activeSiteId = obj.activeSiteId || null;
   state.activeCityId = obj.activeCityId || null;
   if (obj.view)      state.view      = obj.view;
@@ -4780,7 +5364,10 @@ function tryRestoreAutosave() {
       (obj.zones && obj.zones.length) ||
       (obj.sites && obj.sites.length) ||
       (obj.cities && obj.cities.length) ||
-      (obj.spaceAssets && obj.spaceAssets.length);
+      (obj.spaceAssets && obj.spaceAssets.length) ||
+      (obj.planetInfra && obj.planetInfra.length) ||
+      (obj.deepSpaceUnits && obj.deepSpaceUnits.length) ||
+      (obj.progression && obj.progression.walkthroughDone);
     if (!hasAnyContent) return false;
 
     state.devices     = obj.devices     || [];
@@ -4793,6 +5380,10 @@ function tryRestoreAutosave() {
     state.cityLinks   = obj.cityLinks   || [];
     state.spaceAssets = obj.spaceAssets || [];
     state.spaceLinks  = obj.spaceLinks  || [];
+    state.planetInfra = obj.planetInfra || [];
+    state.deepSpaceUnits = obj.deepSpaceUnits || [];
+    state.deepSpaceLinks = obj.deepSpaceLinks || [];
+    if (obj.progression) state.progression = obj.progression;
     state.activeSiteId = cleanString(obj.activeSiteId, 96) || null;
     state.activeCityId = cleanString(obj.activeCityId, 96) || null;
     const v  = cleanView(obj.view);      if (v)  state.view      = v;
@@ -4899,6 +5490,20 @@ dom.toolbar.addEventListener('click', (e) => {
     case 'settings': showSettings(); break;
     case 'ai': showAiAssistant(); break;
     case 'help': showHelp(); break;
+    case 'walkthrough':
+      if (typeof openWalkthrough === 'function') openWalkthrough(0);
+      break;
+    case 'load-demo': loadDemoNetwork(); break;
+  }
+});
+
+// Progress-tray "Guide" button is rendered into the body, not the toolbar.
+// Delegate clicks at the document level so the handler survives re-renders.
+document.addEventListener('click', (e) => {
+  const a = e.target.closest('[data-action="walkthrough"]');
+  if (a && typeof openWalkthrough === 'function') {
+    e.preventDefault();
+    openWalkthrough(0);
   }
 });
 
@@ -6986,7 +7591,9 @@ async function init() {
   applyKeyVisibility();
   renderPalette();
   const restored = tryRestoreAutosave();
-  if (!restored) seedExample();
+  // First-run ships EMPTY so the user actually experiences the section gating
+  // and the walkthrough. The "Load demo" button (see renderEmptyState) lets
+  // them populate the rich seedExample at any time.
   ensureDefaultSite();
   ensureDefaultCity(state.viewMode === 'city');
   updateGridVisibility();
@@ -7006,6 +7613,13 @@ async function init() {
   updateViewToggleButtons();
   updateWorldTransform();
   syncTileMap();
+  // Safety nets: ensure new arrays exist on restored / fresh state.
+  state.planetInfra     = state.planetInfra     || [];
+  state.deepSpaceUnits  = state.deepSpaceUnits  || [];
+  state.deepSpaceLinks  = state.deepSpaceLinks  || [];
+  // Bootstrap progression: evaluate completion, decorate toolbar, open
+  // walkthrough on first run.
+  if (typeof initProgression === 'function') initProgression();
   renderAll();
   // Kick off the Orbit rotation loop if we restored a session already in
   // Orbit view (setViewMode normally does this; init bypasses it).

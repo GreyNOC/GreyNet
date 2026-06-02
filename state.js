@@ -29,6 +29,26 @@ const state = {
   activeSpaceLinkType: 'laser_isl',
   spaceAssets: [],   // { id, type, x, y, label, angle, orbit, props }
   spaceLinks: [],    // { id, fromAssetId, toAssetId, type, label }
+  // === Planet-level global infrastructure (placeable on world view) ===
+  activePlanetInfraType: null,
+  planetInfra: [],   // { id, type, label, lat, lng, props }
+  // === Deep-space placeable units (in addition to the link-budget studio) ===
+  activeDeepUnitType: null,
+  activeDeepLinkType: 'ds_laser',
+  deepSpaceUnits: [],  // { id, type, label, x, y, anchor, props }
+  deepSpaceLinks: [],  // { id, fromId, toId, type, label }
+  // === Section progression ===
+  // Tracks which sections are unlocked/completed. Persisted with the diagram.
+  progression: {
+    walkthroughDone: false,         // true once the user finishes the intro walkthrough
+    walkthroughStep: 0,             // current step in walkthrough
+    completed: {                    // user has met the completion criteria for the section
+      local: false, city: false, planet: false, orbit: false, deepspace: false,
+    },
+    unlocked: {                     // section is accessible from the toolbar
+      local: true, city: false, planet: false, orbit: false, deepspace: false,
+    },
+  },
   hasGmapsApiKey: false,
   hasAiKeys: { anthropic: false, openai: false },
   aiModel: { anthropic: '', openai: '' },
@@ -75,6 +95,9 @@ function snapshot() {
     sites: state.sites, siteLinks: state.siteLinks,
     cities: state.cities, endpoints: state.endpoints, cityLinks: state.cityLinks,
     spaceAssets: state.spaceAssets, spaceLinks: state.spaceLinks,
+    planetInfra: state.planetInfra,
+    deepSpaceUnits: state.deepSpaceUnits, deepSpaceLinks: state.deepSpaceLinks,
+    progression: state.progression,
     activeSiteId: state.activeSiteId, activeCityId: state.activeCityId, viewMode: state.viewMode,
   });
 }
@@ -84,6 +107,9 @@ function restoreSnapshot(s) {
   state.sites = d.sites || state.sites; state.siteLinks = d.siteLinks || [];
   state.cities = d.cities || state.cities; state.endpoints = d.endpoints || []; state.cityLinks = d.cityLinks || [];
   state.spaceAssets = d.spaceAssets || []; state.spaceLinks = d.spaceLinks || [];
+  state.planetInfra = d.planetInfra || [];
+  state.deepSpaceUnits = d.deepSpaceUnits || []; state.deepSpaceLinks = d.deepSpaceLinks || [];
+  if (d.progression) state.progression = d.progression;
   state.activeSiteId = d.activeSiteId || state.activeSiteId;
   state.activeCityId = d.activeCityId || state.activeCityId;
   state.viewMode = d.viewMode || state.viewMode;
@@ -166,4 +192,11 @@ const dom = {
   warningsCount: document.getElementById('warnings-count'),
   warningsBody:  document.getElementById('warnings-body'),
   fileInput:     document.getElementById('file-input'),
+  planetInfraLayer:    document.getElementById('planetinfra-layer'),
+  deepSpaceUnitsLayer: document.getElementById('deepspace-units-layer'),
+  deepSpaceUnitlinksLayer: document.getElementById('deepspace-unitlinks-layer'),
+  walkthrough:    document.getElementById('walkthrough'),
+  walkthroughBody:document.getElementById('walkthrough-body'),
+  walkthroughFoot:document.getElementById('walkthrough-foot'),
+  progressTray:   document.getElementById('progress-tray'),
 };

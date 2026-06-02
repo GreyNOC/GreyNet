@@ -842,3 +842,216 @@
   .pal-sites { display: none; }
   body.world-mode .pal-sites { display: block; }
   body.world-mode .pal-devices { display: none; }
+
+  /* =========================================================================
+     SECTION PROGRESSION — view-toggle button states
+     ========================================================================= */
+  #view-seg .seg-btn { position: relative; }
+  #view-seg .seg-btn.locked {
+    color: var(--text-faint);
+    opacity: 0.55;
+  }
+  #view-seg .seg-btn.locked::before {
+    content: ""; position: absolute; top: 3px; right: 5px;
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--text-faint); box-shadow: 0 0 0 2px var(--bg-1);
+  }
+  #view-seg .seg-btn.complete::after {
+    content: ""; position: absolute; top: 3px; right: 5px;
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--ok); box-shadow: 0 0 6px var(--ok), 0 0 0 2px var(--bg-1);
+  }
+
+  /* =========================================================================
+     PROGRESS TRAY (bottom-right of canvas)
+     ========================================================================= */
+  .progress-tray {
+    position: fixed; right: 14px; bottom: 36px; z-index: 40;
+    display: flex; align-items: center; gap: 10px;
+    background: rgba(17, 22, 29, 0.92);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 6px 10px 6px 14px;
+    backdrop-filter: blur(6px);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.45);
+    font-size: 11px;
+  }
+  .progress-tray .prog-bar {
+    width: 110px; height: 4px; background: var(--bg-2);
+    border-radius: 2px; overflow: hidden; flex-shrink: 0;
+  }
+  .progress-tray .prog-bar-fill {
+    height: 100%; background: linear-gradient(90deg, var(--accent), var(--ok));
+    transition: width 0.3s ease;
+  }
+  .progress-tray .prog-chips { display: flex; align-items: center; gap: 4px; }
+  .progress-tray .prog-chip {
+    display: inline-flex; align-items: center; gap: 5px;
+    background: transparent; border: 1px solid transparent;
+    color: var(--text-dim); padding: 3px 8px; border-radius: 12px;
+    font-size: 10.5px; cursor: pointer;
+  }
+  .progress-tray .prog-chip:hover { color: var(--accent); border-color: var(--border); }
+  .progress-tray .prog-chip.current {
+    background: rgba(95,179,255,0.12); color: var(--accent); border-color: var(--accent);
+  }
+  .progress-tray .prog-chip.complete { color: var(--ok); }
+  .progress-tray .prog-chip.complete .prog-dot { background: var(--ok); box-shadow: 0 0 4px var(--ok); }
+  .progress-tray .prog-chip.locked { color: var(--text-faint); cursor: not-allowed; opacity: 0.55; }
+  .progress-tray .prog-chip.locked .prog-dot { background: var(--text-faint); }
+  .progress-tray .prog-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent); flex-shrink: 0;
+  }
+  .progress-tray .prog-sep {
+    color: var(--text-faint); font-size: 11px; opacity: 0.6; padding: 0 2px;
+  }
+  .progress-tray .prog-help-btn {
+    background: var(--accent); color: var(--bg-0);
+    border: none; border-radius: 11px;
+    padding: 4px 12px; font-size: 10.5px; font-weight: 600;
+    cursor: pointer; letter-spacing: 0.4px;
+  }
+  .progress-tray .prog-help-btn:hover { filter: brightness(1.1); }
+
+  /* =========================================================================
+     WALKTHROUGH OVERLAY
+     ========================================================================= */
+  .walkthrough {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(7, 11, 17, 0.78);
+    backdrop-filter: blur(4px);
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+    animation: wt-fade-in 0.18s ease-out;
+  }
+  .walkthrough.hidden { display: none; }
+  @keyframes wt-fade-in { from { opacity: 0; } to { opacity: 1; } }
+  .wt-card {
+    background: var(--bg-panel);
+    border: 1px solid var(--border-2);
+    border-radius: 8px;
+    box-shadow: 0 12px 56px rgba(0,0,0,0.6), 0 0 0 1px rgba(95,179,255,0.18);
+    width: 580px; max-width: 100%;
+    max-height: 86vh;
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .wt-body { padding: 28px 32px 16px 32px; overflow-y: auto; flex: 1; }
+  .wt-stepnum {
+    font-size: 10px; text-transform: uppercase; letter-spacing: 1.4px;
+    color: var(--accent); margin-bottom: 8px; font-weight: 600;
+  }
+  .wt-title {
+    margin: 0 0 14px 0; color: var(--text); font-size: 22px; font-weight: 600;
+  }
+  .wt-content { color: var(--text-dim); font-size: 13.5px; line-height: 1.6; }
+  .wt-content p { margin: 0 0 12px 0; }
+  .wt-content p:last-child { margin-bottom: 0; }
+  .wt-content b { color: var(--text); font-weight: 600; }
+  .wt-content kbd {
+    background: var(--bg-2); border: 1px solid var(--border-2);
+    border-radius: 3px; padding: 1px 6px; font-size: 11px;
+    font-family: "SF Mono", Menlo, Consolas, monospace; color: var(--text);
+  }
+  .wt-content ul, .wt-content ol { margin: 0 0 12px 0; padding-left: 22px; }
+  .wt-content li { margin-bottom: 6px; }
+  .wt-layer-list { list-style: none; padding-left: 0 !important; }
+  .wt-layer-list li {
+    border-left: 3px solid var(--accent); padding-left: 12px;
+    margin-bottom: 8px;
+  }
+  .wt-layer-list li b { color: var(--accent); }
+  .wt-foot {
+    padding: 14px 32px; border-top: 1px solid var(--border);
+    background: var(--bg-1);
+    display: flex; align-items: center; gap: 12px;
+  }
+  .wt-dots { display: flex; gap: 5px; flex: 1; }
+  .wt-dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--bg-3); transition: background 0.2s;
+  }
+  .wt-dot.active { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  .wt-actions { display: flex; gap: 8px; }
+  .wt-actions button {
+    background: var(--bg-2); border: 1px solid var(--border);
+    color: var(--text); padding: 6px 16px; border-radius: 4px;
+    font-size: 12px; cursor: pointer;
+  }
+  .wt-actions button:hover { border-color: var(--border-2); }
+  .wt-actions button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .wt-actions .wt-skip { background: transparent; border-color: transparent; color: var(--text-faint); }
+  .wt-actions .wt-skip:hover { color: var(--text-dim); border-color: var(--border); }
+  .wt-actions .wt-next { background: var(--accent); color: var(--bg-0); border-color: var(--accent); font-weight: 600; }
+  .wt-actions .wt-next:hover { filter: brightness(1.12); }
+
+  /* =========================================================================
+     PALETTE — section visibility for new views
+     ========================================================================= */
+  .pal-planetinfra, .pal-deepspace { display: none; }
+  body.world-mode    .pal-planetinfra { display: block; }
+  body.deepspace-mode .pal-deepspace { display: block; }
+  body.deepspace-mode .pal-devices,
+  body.deepspace-mode .pal-sites,
+  body.deepspace-mode .pal-space,
+  body.deepspace-mode .pal-endpoints,
+  body.deepspace-mode .pal-city-sites { display: none; }
+
+  /* =========================================================================
+     PLANET INFRASTRUCTURE markers
+     ========================================================================= */
+  .pi-marker { cursor: pointer; }
+  .pi-marker .pi-bg { fill: var(--bg-1); stroke-width: 2; }
+  .pi-marker .pi-icon { color: #fff; pointer-events: none; }
+  .pi-marker.selected .pi-bg { stroke: var(--select); stroke-width: 3; filter: drop-shadow(0 0 6px var(--select)); }
+  .pi-marker .pi-label {
+    fill: var(--text); font-size: 11px; text-anchor: middle;
+    paint-order: stroke; stroke: var(--bg-0); stroke-width: 3;
+    pointer-events: none;
+  }
+  .pi-marker .pi-sub {
+    fill: var(--text-dim); font-size: 9px; text-anchor: middle;
+    paint-order: stroke; stroke: var(--bg-0); stroke-width: 2.5;
+    pointer-events: none; text-transform: uppercase; letter-spacing: 0.8px;
+  }
+
+  /* =========================================================================
+     DEEP-SPACE PLACEABLE UNITS
+     ========================================================================= */
+  .ds-unit { cursor: pointer; }
+  .ds-unit.anchored .du-halo { stroke-dasharray: 4 3; opacity: 0.65; }
+  .ds-unit .du-halo { fill: none; opacity: 0.5; }
+  .ds-unit .du-bg   { fill: rgba(15, 22, 33, 0.92); stroke-width: 2; }
+  .ds-unit .du-icon { color: #fff; pointer-events: none; }
+  .ds-unit.selected .du-bg { stroke: var(--select); stroke-width: 3; filter: drop-shadow(0 0 6px var(--select)); }
+  .ds-unit.connect-pending .du-bg { stroke: var(--ok); }
+  .ds-unit .du-label {
+    fill: var(--text); font-size: 11px; text-anchor: middle;
+    paint-order: stroke; stroke: var(--bg-0); stroke-width: 3;
+    pointer-events: none;
+  }
+  .ds-unit .du-type {
+    fill: var(--text-dim); font-size: 9px; text-anchor: middle;
+    paint-order: stroke; stroke: var(--bg-0); stroke-width: 2.5;
+    pointer-events: none; text-transform: uppercase; letter-spacing: 0.6px;
+  }
+  .ds-unitlink { fill: none; stroke-linecap: round; cursor: pointer; }
+  .ds-unitlink:hover { stroke-width: 4; }
+  .ds-unitlink.selected { filter: drop-shadow(0 0 4px var(--select)); }
+  .ds-unitlink-hit { stroke: transparent; stroke-width: 14; fill: none; cursor: pointer; }
+
+  /* Stats panel block used in properties */
+  .stats-grid {
+    display: grid; grid-template-columns: 1fr auto;
+    gap: 4px 12px; font-family: "SF Mono", Menlo, monospace; font-size: 11px;
+    background: var(--bg-2); padding: 8px 10px; border-radius: 4px;
+    margin: 6px 0 10px 0;
+  }
+  .stats-grid .k { color: var(--text-dim); }
+  .stats-grid .v { color: var(--text); text-align: right; }
+  .unit-purpose {
+    font-size: 11.5px; color: var(--text-dim); line-height: 1.45;
+    border-left: 2px solid var(--accent); padding: 4px 0 4px 10px;
+    margin: 4px 0 8px 0;
+  }

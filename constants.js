@@ -108,13 +108,33 @@ const ORBIT_ALTITUDES = {
 };
 
 const SPACE_ASSET_TYPES = {
-  satellite_leo:  { label: 'LEO Satellite',       icon: 'sa-satellite',  color: '#6fcf97', orbit: 'leo' },
-  satellite_meo:  { label: 'MEO Satellite (GPS)', icon: 'sa-satellite',  color: '#f5c84c', orbit: 'meo' },
-  satellite_geo:  { label: 'GEO Satellite',       icon: 'sa-satellite',  color: '#ff8c42', orbit: 'geo' },
-  station:        { label: 'Space Station',       icon: 'sa-station',    color: '#85c3ff', orbit: 'iss' },
-  ground_station: { label: 'Ground Station',      icon: 'sa-ground',     color: '#a1d2ff', orbit: 'ground' },
-  constellation:  { label: 'Constellation Node',  icon: 'sa-constellation', color: '#b388eb', orbit: 'leo' },
-  relay:          { label: 'Relay Satellite',     icon: 'sa-relay',      color: '#5fb3ff', orbit: 'geo' },
+  satellite_leo:  { label: 'LEO Satellite',       icon: 'sa-satellite',  color: '#6fcf97', orbit: 'leo',
+    purpose: 'General-purpose low-Earth orbit comms', stats: { coverage_km: 1200, bandwidth: '1 Gbps', power_w: 800, security: 'TLS' } },
+  satellite_meo:  { label: 'MEO Satellite (GPS)', icon: 'sa-satellite',  color: '#f5c84c', orbit: 'meo',
+    purpose: 'Medium-orbit positioning / GNSS',     stats: { coverage_km: 4500, bandwidth: '50 Mbps', power_w: 1500, security: 'L-band' } },
+  satellite_geo:  { label: 'GEO Satellite',       icon: 'sa-satellite',  color: '#ff8c42', orbit: 'geo',
+    purpose: 'Geostationary broadcast / hub',       stats: { coverage_km: 17500, bandwidth: '10 Gbps', power_w: 9000, security: 'Ka-band' } },
+  station:        { label: 'Space Station',       icon: 'sa-station',    color: '#85c3ff', orbit: 'iss',
+    purpose: 'Crewed orbital outpost',              stats: { coverage_km: 2000, bandwidth: '600 Mbps', power_w: 90000, security: 'Hardened' } },
+  ground_station: { label: 'Ground Station',      icon: 'sa-ground',     color: '#a1d2ff', orbit: 'ground',
+    purpose: 'Earth-side uplink/downlink',          stats: { coverage_km: 2200, bandwidth: '40 Gbps', power_w: 50000, security: 'TLS+VPN' } },
+  constellation:  { label: 'Constellation Node',  icon: 'sa-constellation', color: '#b388eb', orbit: 'leo',
+    purpose: 'Mesh comms node in a LEO swarm',      stats: { coverage_km: 900, bandwidth: '4 Gbps', power_w: 600, security: 'Mesh' } },
+  relay:          { label: 'Relay Satellite',     icon: 'sa-relay',      color: '#5fb3ff', orbit: 'geo',
+    purpose: 'Multi-link cross-orbit relay',        stats: { coverage_km: 22000, bandwidth: '20 Gbps', power_w: 12000, security: 'Ka/Optical' } },
+  // === New units added for richer Orbit layer ===
+  defense_node:   { label: 'Defense Node',        icon: 'sa-defense',    color: '#ff6b6b', orbit: 'meo',
+    purpose: 'Orbital threat-detection + counter',  stats: { coverage_km: 6000, bandwidth: '100 Mbps', power_w: 4000, security: 'MILSPEC' } },
+  monitor_sat:    { label: 'Monitoring Sat',      icon: 'sa-monitor',    color: '#85e3ff', orbit: 'leo',
+    purpose: 'Earth/asset monitoring + telemetry',  stats: { coverage_km: 1500, bandwidth: '500 Mbps', power_w: 1200, security: 'Encrypted' } },
+  gps_nav:        { label: 'GPS / Nav Unit',      icon: 'sa-gps',        color: '#ffd76a', orbit: 'meo',
+    purpose: 'Precise time + position service',     stats: { coverage_km: 5000, bandwidth: '20 Mbps', power_w: 1100, security: 'Authenticated' } },
+  comm_array:     { label: 'Comm Array',          icon: 'sa-commarray',  color: '#5fb3ff', orbit: 'geo',
+    purpose: 'High-capacity directional comms',     stats: { coverage_km: 18000, bandwidth: '40 Gbps', power_w: 14000, security: 'Phased-array' } },
+  orbit_firewall: { label: 'Orbital Firewall',    icon: 'sa-firewall',   color: '#f5a14c', orbit: 'leo',
+    purpose: 'Inline traffic inspection in orbit',  stats: { coverage_km: 1000, bandwidth: '8 Gbps', power_w: 3200, security: 'L7-DPI' } },
+  data_router:    { label: 'Data Routing Sat',    icon: 'sa-router',     color: '#6fcf97', orbit: 'geo',
+    purpose: 'BGP-like orbital data routing',       stats: { coverage_km: 16000, bandwidth: '30 Gbps', power_w: 8000, security: 'IPsec' } },
 };
 
 const SPACE_LINK_TYPES = {
@@ -123,6 +143,64 @@ const SPACE_LINK_TYPES = {
   uplink:    { label: 'Ground Uplink', color: '#6fcf97', width: 2.5, dash: '4 2 2 2'},
   downlink:  { label: 'Downlink',      color: '#f5c84c', width: 2.5, dash: '2 4'    },
   feeder:    { label: 'Feeder Link',   color: '#ff8c42', width: 2,   dash: null     },
+};
+
+// === PLANET-LEVEL GLOBAL INFRASTRUCTURE ===
+// Placeable on the Planet view ALONGSIDE physical sites — represents global,
+// non-site infrastructure (data centers can also exist as sites, but these are
+// the "global mesh" pieces that justify the planet layer being more than a map
+// of buildings).
+const PLANET_INFRA_TYPES = {
+  global_dc:   { label: 'Global Data Center', icon: 'pi-datacenter', color: '#5fb3ff',
+    purpose: 'Continental compute hub',     defaultProps: { region:'', tier:'III', cores:'10k', notes:'' } },
+  ground_uplink: { label: 'Satellite Uplink', icon: 'pi-uplink',     color: '#85e3ff',
+    purpose: 'Earth↔Orbit comms gateway',   defaultProps: { dishM:'9.0', band:'Ka', notes:'' } },
+  sensor_array: { label: 'Sensor Array',     icon: 'pi-sensor',     color: '#6fcf97',
+    purpose: 'Distributed Earth sensing',   defaultProps: { sensorType:'multispectral', notes:'' } },
+  comm_tower:  { label: 'Comm Tower',         icon: 'pi-tower',      color: '#f5c84c',
+    purpose: 'Regional broadcast tower',    defaultProps: { heightM:'200', notes:'' } },
+  ai_center:   { label: 'AI Monitor Center', icon: 'pi-ai',          color: '#b388eb',
+    purpose: 'AI-driven anomaly detection', defaultProps: { gpus:'512', notes:'' } },
+  backup_node: { label: 'Backup Node',       icon: 'pi-backup',      color: '#a1d2ff',
+    purpose: 'Cold-storage redundancy',     defaultProps: { capacityTB:'400', notes:'' } },
+  security_gw: { label: 'Security Gateway',  icon: 'pi-secgw',       color: '#ff8c42',
+    purpose: 'Border traffic inspection',   defaultProps: { throughput:'40 Gbps', notes:'' } },
+};
+
+// === DEEP SPACE PLACEABLE UNITS ===
+// In addition to the heliocentric Link Budget Studio, the user can now place
+// actual deep-space units in a separate "deep-space mesh" view. These attach
+// to a target planet/region and form a layer that connects back to orbital
+// assets through DEEP_SPACE_LINK_TYPES.
+const DEEP_SPACE_UNIT_TYPES = {
+  ds_relay:        { label: 'Deep-Space Relay',     icon: 'ds-relay',    color: '#5fb3ff',
+    purpose: 'Long-range data relay',     stats: { range_au: 3.0, bandwidth: '8 Mbps', power_w: 4000, security: 'AES-256' } },
+  ds_probe:        { label: 'Probe',                icon: 'ds-probe',    color: '#85e3ff',
+    purpose: 'Autonomous exploration probe', stats: { range_au: 40.0, bandwidth: '160 kbps', power_w: 400, security: 'Authenticated' } },
+  ds_sensor:       { label: 'Long-Range Sensor',    icon: 'ds-sensor',   color: '#6fcf97',
+    purpose: 'Wide-field sensor / telescope', stats: { range_au: 100, bandwidth: '20 Mbps', power_w: 1600, security: 'Signed' } },
+  ds_quantum:      { label: 'Quantum Comm Gateway', icon: 'ds-quantum',  color: '#b388eb',
+    purpose: 'Entanglement-class link',   stats: { range_au: 50, bandwidth: '1 Mbps', power_w: 12000, security: 'QKD' } },
+  ds_research:     { label: 'Research Station',     icon: 'ds-research', color: '#a1d2ff',
+    purpose: 'Crewed deep-space outpost', stats: { range_au: 5.0, bandwidth: '400 Mbps', power_w: 80000, security: 'Hardened' } },
+  ds_signal_amp:   { label: 'Signal Amplifier',     icon: 'ds-amp',      color: '#ffd76a',
+    purpose: 'Boost relay-chain SNR',     stats: { range_au: 10.0, bandwidth: '50 Mbps', power_w: 2200, security: 'TLS' } },
+  ds_threat_array: { label: 'Threat Detection Array', icon: 'ds-threat', color: '#ff6b6b',
+    purpose: 'Anomaly / threat scanning', stats: { range_au: 25, bandwidth: '60 Mbps', power_w: 6000, security: 'MILSPEC' } },
+  ds_archive:      { label: 'Data Archive Node',    icon: 'ds-archive',  color: '#f5c84c',
+    purpose: 'Long-term cold archive',    stats: { range_au: 1.0, bandwidth: '100 Mbps', power_w: 5000, security: 'WORM' } },
+  ds_explorer:     { label: 'Autonomous Explorer',  icon: 'ds-explorer', color: '#ff8c42',
+    purpose: 'Self-directed scout craft', stats: { range_au: 80, bandwidth: '120 kbps', power_w: 300, security: 'Signed' } },
+  ds_backup:       { label: 'Emergency Backup',     icon: 'ds-backup',   color: '#8fbcdf',
+    purpose: 'Failover redundancy node',  stats: { range_au: 2.0, bandwidth: '60 Mbps', power_w: 3200, security: 'TLS' } },
+};
+
+const DEEP_SPACE_LINK_TYPES = {
+  ds_laser:    { label: 'Laser Link',      color: '#85e3ff', width: 2,   dash: null     },
+  ds_quantum:  { label: 'Quantum Link',    color: '#b388eb', width: 2.5, dash: '4 2'    },
+  ds_relay:    { label: 'Relay Hop',       color: '#5fb3ff', width: 2,   dash: '6 3'    },
+  ds_dsn:      { label: 'DSN Downlink',    color: '#6fcf97', width: 2.5, dash: '4 2 2 2'},
+  ds_redundant:{ label: 'Redundant Path',  color: '#f5a14c', width: 1.5, dash: '2 4'    },
 };
 
 // Stylized continent polygons in lng/lat space, projected to world coords
