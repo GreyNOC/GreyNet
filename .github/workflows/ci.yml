@@ -67,6 +67,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      # gitleaks-action calls GET /repos/.../pulls/{n}/commits on PR events;
+      # without pull-requests:read it hard-errors with 403 on every PR.
+      pull-requests: read
     steps:
       - uses: actions/checkout@v4
         with:
