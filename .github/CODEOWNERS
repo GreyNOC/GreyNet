@@ -1,0 +1,15 @@
+# GreyNet repository ownership rules
+# These rules only become blocking when branch protection enables "Require review from Code Owners".
+
+# Require GreyNOC review for all repository changes.
+* @GreyNOC
+
+# Extra-sensitive application/security areas.
+.github/ @GreyNOC
+.github/workflows/ @GreyNOC
+SECURITY.md @GreyNOC
+package.json @GreyNOC
+package-lock.json @GreyNOC
+main.js @GreyNOC
+preload.js @GreyNOC
+scripts/security-audit.js @GreyNOC
