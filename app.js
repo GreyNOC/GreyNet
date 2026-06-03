@@ -2213,6 +2213,19 @@ function renderSpaceLinkProperties(sl) {
       `</div>`;
     html += `<div class="pr-field"><label>Line of sight</label><input value="${metrics.occulted ? 'Earth occulted / below horizon' : 'Clear'}" disabled/></div>`;
   }
+  // Extended validation via orbit-metrics.js (range/latency/issues using a
+  // richer model + a per-link issue list).
+  if (typeof orbitLinkSummary === 'function') {
+    try {
+      const ext = orbitLinkSummary(sl.id, state);
+      if (ext && ext.issues && ext.issues.length) {
+        html += `<div class="pr-field" style="border:1px solid #7a611e;background:#2a230f;border-radius:4px;padding:8px;margin-top:8px">` +
+          `<label style="color:#f5d77a">Validator</label>` +
+          `<div style="font-size:11px;color:#f5d77a">${ext.issues.map(escapeHtml).join('<br>')}</div>` +
+          `</div>`;
+      }
+    } catch (e) { /* silent fall-through */ }
+  }
   dom.prBody.innerHTML = html;
   dom.prBody.querySelectorAll('input, select').forEach(inp => {
     inp.addEventListener('change', () => {
@@ -4065,7 +4078,10 @@ function renderSiteSwitcherMenu() {
       if (a === 'open-world') setViewMode('world');
       else if (a === 'add-site') {
         setViewMode('world');
-        alert('In Planet View, click a site type in the left palette, then click the map to place it.');
+        if (typeof toast === 'function') {
+          toast('Click a site type in the left palette, then click the map to place it.',
+                { variant: 'info', ttlMs: 5000 });
+        }
       } else if (a === 'new-city') {
         promptNewCity();
       }
@@ -4321,6 +4337,49 @@ function deviceZone(d) {
 function validate() {
   const warnings = [];
 
+  // === Architecture validator output (cross-layer connectivity) ===
+  // Adds blockers/warnings/recommendations from validator.js, grouped by
+  // section. Mapped to the tray's severity scheme:
+  //   blocker → err, warning → warn, recommendation → info
+  // Falls back silently if validator.js is missing (smoke tests etc).
+  if (typeof validateArchitectureGraph === 'function') {
+    try {
+      const v = validateArchitectureGraph(state);
+      const sectionLabel = {
+        local: 'Local', city: 'City', planet: 'Planet',
+        orbit: 'Orbit', deepspace: 'Deep Space',
+      };
+      for (const sec of ['local','city','planet','orbit','deepspace']) {
+        const st = v.sectionStatus[sec];
+        for (const m of st.blockers) {
+          warnings.push({ severity: 'err',  msg: `[${sectionLabel[sec]}] ${m}` });
+        }
+        for (const m of st.warnings) {
+          warnings.push({ severity: 'warn', msg: `[${sectionLabel[sec]}] ${m}` });
+        }
+        for (const m of st.recommendations) {
+          warnings.push({ severity: 'info', msg: `[${sectionLabel[sec]}] ${m}` });
+        }
+      }
+      // Orphan-object roll-up across all layers — clickable selection.
+      for (const o of v.orphanedObjects) {
+        warnings.push({
+          severity: 'warn',
+          msg: `[${sectionLabel[o.layer] || o.layer}] Orphan ${o.kind}: "${o.label}"`,
+          sourceIds: [o.id],
+        });
+      }
+      if (!v.fullPathExists) {
+        warnings.push({
+          severity: 'info',
+          msg: '[Global] No proven Local→Deep Space connectivity path yet.',
+        });
+      }
+    } catch (e) {
+      console.warn('Architecture validator failed inside renderWarnings()', e);
+    }
+  }
+
   // duplicate IPs
   const byIp = {};
   for (const d of state.devices) {
@@ -4404,7 +4463,12 @@ function renderWarnings() {
   const warnings = validate();
   _lastWarnings = warnings;
   if (warnings.length === 0) {
+    // Clear the body + counter so a previously-rendered tray can't leak stale
+    // findings into the next render (e.g. after Load demo fixes everything).
     dom.warningsTray.classList.add('hidden');
+    dom.warningsCount.textContent = '0';
+    dom.warningsCount.classList.remove('err');
+    dom.warningsBody.innerHTML = '';
     return;
   }
   dom.warningsTray.classList.remove('hidden');
@@ -4444,8 +4508,7 @@ document.getElementById('warnings-header').addEventListener('click', () => {
 const STORAGE_KEY = 'greynet:autosave:v1';
 
 function diagramToJson() {
-  return {
-    version: 4,
+  const body = {
     app: 'GreyNet',
     savedAt: new Date().toISOString(),
     view: state.view,
@@ -4466,16 +4529,16 @@ function diagramToJson() {
     cityLinks: state.cityLinks,
     spaceAssets: state.spaceAssets,
     spaceLinks: state.spaceLinks,
-    // === New: planet-level global infrastructure ===
     planetInfra: state.planetInfra,
-    // === New: deep-space placeable mesh ===
     deepSpaceUnits: state.deepSpaceUnits,
     deepSpaceLinks: state.deepSpaceLinks,
-    // === New: section progression / unlock state ===
     progression: state.progression,
-    // Deep Space link studio configuration (per-diagram, not per-machine).
     comms: state.comms,
   };
+  // Stamp app+schemaVersion (and legacy `version`) via migrations.js when
+  // it's loaded; otherwise fall back to the old version field.
+  if (typeof stampDiagram === 'function') return stampDiagram(body);
+  return Object.assign({ schemaVersion: 5, version: 5 }, body);
 }
 
 const MAX_IMPORT_ITEMS = 2000;
@@ -4672,13 +4735,19 @@ function sanitizeDiagram(obj) {
     props: cleanProps(u.props),
   })).filter(u => dsUnitTbl[u.type]);
   const dsUnitIds = new Set(deepSpaceUnits.map(u => u.id));
+  // Deep-space links can also be cross-domain handoffs to an orbit
+  // ground station (or any orbit asset). Both endpoints just need to
+  // resolve to a known DS unit OR a known orbit asset.
   const deepSpaceLinks = cleanArray(obj.deepSpaceLinks).map(l => ({
     id: cleanId(l.id),
     fromId: cleanString(l.fromId, 96),
     toId: cleanString(l.toId, 96),
     type: dsLinkTbl[l.type] ? l.type : Object.keys(dsLinkTbl)[0] || 'ds_laser',
     label: cleanString(l.label),
-  })).filter(l => dsUnitIds.has(l.fromId) && dsUnitIds.has(l.toId));
+  })).filter(l =>
+    (dsUnitIds.has(l.fromId) || spaceAssetIds.has(l.fromId)) &&
+    (dsUnitIds.has(l.toId)   || spaceAssetIds.has(l.toId))
+  );
 
   // Progression — be lenient: any malformed value falls back to defaults.
   const progIn = obj.progression && typeof obj.progression === 'object' ? obj.progression : null;
@@ -4752,6 +4821,12 @@ function sanitizeAiAction(action) {
 
 function loadFromJson(obj) {
   if (!obj || (obj.app !== 'GreyNet' && obj.app !== 'gREYnET')) throw new Error('Not a GreyNet diagram');
+  // Bring old schema versions up to current BEFORE sanitizing, so newly-added
+  // fields aren't silently dropped on import of an old save.
+  if (typeof migrateDiagram === 'function') {
+    try { obj = migrateDiagram(obj); }
+    catch (e) { throw new Error('Migration failed: ' + (e.message || e)); }
+  }
   obj = sanitizeDiagram(obj);
   pushHistory();
   state.devices = obj.devices || [];
@@ -4858,16 +4933,16 @@ dom.fileInput.addEventListener('change', (e) => {
   // Always clear the input synchronously so re-selecting the same file works.
   e.target.value = '';
   if (!file) return;
+  const t = (msg, variant = 'error') => {
+    if (typeof toast === 'function') toast(msg, { variant, ttlMs: 7000 });
+    else alert(msg);
+  };
   if (file.size > MAX_JSON_BYTES) {
-    alert(
-      `That JSON is ${(file.size / 1024 / 1024).toFixed(1)} MB — bigger than the ` +
-      `${(MAX_JSON_BYTES / 1024 / 1024).toFixed(0)} MB import limit.\n\n` +
-      `If this really is a GreyNet diagram, split it or raise MAX_JSON_BYTES in app.js.`
-    );
+    t(`That JSON is ${(file.size / 1024 / 1024).toFixed(1)} MB — over the ${(MAX_JSON_BYTES / 1024 / 1024).toFixed(0)} MB import limit.`);
     return;
   }
   if (file.size === 0) {
-    alert('That file is empty.');
+    t('That file is empty.', 'warn');
     return;
   }
   const reader = new FileReader();
@@ -4875,15 +4950,18 @@ dom.fileInput.addEventListener('change', (e) => {
     let parsed;
     try { parsed = JSON.parse(reader.result); }
     catch (err) {
-      alert('Failed to parse JSON: ' + (err.message || 'invalid syntax'));
+      t('Failed to parse JSON: ' + (err.message || 'invalid syntax'));
       return;
     }
-    try { loadFromJson(parsed); }
+    try {
+      loadFromJson(parsed);
+      t('Diagram loaded.', 'success');
+    }
     catch (err) {
-      alert('Failed to load: ' + (err.message || String(err)));
+      t('Failed to load: ' + (err.message || String(err)));
     }
   };
-  reader.onerror = () => alert('Failed to read the file.');
+  reader.onerror = () => t('Failed to read the file.');
   reader.readAsText(file);
 });
 
@@ -5358,6 +5436,10 @@ function tryRestoreAutosave() {
     }
     if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
     if (obj.app !== 'GreyNet' && obj.app !== 'gREYnET') return false;
+    if (typeof migrateDiagram === 'function') {
+      try { obj = migrateDiagram(obj); }
+      catch (_) { /* fall through; sanitizer is still defensive */ }
+    }
     obj = sanitizeDiagram(obj);
     const hasAnyContent =
       (obj.devices && obj.devices.length) ||
@@ -5749,7 +5831,24 @@ function showAiAssistant() {
     overlay.querySelector('#ai-send').disabled = true;
     try {
       const result = await callAi(prompt);
-      const summary = applyAiActions(result);
+      // Prefer the v2 applier — it validates each action, rejects duplicates,
+      // and reports a per-action skip list. Falls back to the legacy applier
+      // only if ai-actions.js failed to load.
+      let summary;
+      if (typeof applyAiActionsV2 === 'function') {
+        const r = applyAiActionsV2(result, {
+          state, uid, snap,
+          pushHistory, renderAll,
+          syncLeafletMarkers: typeof syncLeafletMarkers === 'function' ? syncLeafletMarkers : null,
+        });
+        summary = `Applied ${r.appliedCount}, skipped ${r.skippedCount}. ${r.notes || ''}`.trim();
+        if (r.skippedCount && typeof toast === 'function') {
+          const top = r.skipped.slice(0, 3).map(x => `${x.type}: ${x.reason}`).join('; ');
+          toast(`AI: ${r.skippedCount} action(s) skipped — ${top}`, { variant: 'warn', ttlMs: 6000 });
+        }
+      } else {
+        summary = applyAiActions(result);
+      }
       statusEl.className = 'ai-status success';
       statusEl.textContent = `✓ ${summary}`;
     } catch (err) {
@@ -5819,7 +5918,13 @@ async function callAi(userPrompt) {
   };
   const fullPrompt = `Current diagram context:\n${JSON.stringify(ctx, null, 2)}\n\nUser request:\n${userPrompt}\n\nRespond ONLY with the JSON object as described in your instructions.`;
 
-  const result = await window.greynetSecure.callAi({ system: AI_SYSTEM_PROMPT, prompt: fullPrompt });
+  // Prefer the live system prompt built from current constants tables (so
+  // newly-added device/link/space/deep-space types stay in sync). Falls
+  // back to the legacy AI_SYSTEM_PROMPT constant if ai-actions.js didn't load.
+  const systemPrompt = typeof buildAiSystemPrompt === 'function'
+    ? buildAiSystemPrompt()
+    : AI_SYSTEM_PROMPT;
+  const result = await window.greynetSecure.callAi({ system: systemPrompt, prompt: fullPrompt });
   return parseAiJson(result.text || '');
 }
 
@@ -7580,6 +7685,21 @@ function renderLinkBudgetStudio() {
 
   // Click a planet in the viz to set it as target (event delegation here so it
   // survives re-renders) — handled in renderDeepSpace's per-planet click.
+
+  // Append the Deep Space Mesh panel below the Link Budget Studio so the user
+  // sees their placed units, anchors, latency and reachability summary in the
+  // same right-side pane.
+  if (typeof renderDeepSpaceMeshPanel === 'function') {
+    const meshHost = document.createElement('div');
+    meshHost.className = 'lbs-section';
+    meshHost.style.cssText = 'margin-top:16px;padding-top:12px;border-top:1px solid #1f2937';
+    meshHost.innerHTML = '<h4 style="margin:0 0 8px">Deep Space Mesh</h4>';
+    const mountPoint = document.createElement('div');
+    meshHost.appendChild(mountPoint);
+    dom_pr.appendChild(meshHost);
+    try { renderDeepSpaceMeshPanel(mountPoint, state); }
+    catch (e) { console.warn('renderDeepSpaceMeshPanel failed', e); }
+  }
 }
 
 
@@ -7707,6 +7827,15 @@ function seedExample() {
       cityId: city.id, props: e.props,
     });
   }
+  // Place the HQ site onto the city map so the validator sees a real
+  // site↔city linkage (architecture brief: "linked site and city endpoint
+  // are connected").
+  const hqPlacement = {
+    id: uid(), type: 'building', label: 'HQ — placed in NYC',
+    x: 300, y: 300, lat: 40.7128, lng: -74.0060,
+    cityId: city.id, siteId: hq.id, props: { address: 'HQ on city map' },
+  };
+  state.endpoints.push(hqPlacement);
   // Wire up some cable runs
   const ep = (label) => state.endpoints.find(x => x.label === label);
   state.cityLinks = [
@@ -7718,6 +7847,8 @@ function seedExample() {
     { id: uid(), fromEpId: ep('Fiber FJ-42').id,     toEpId: ep('Cabinet TS-42').id,  type: 'fiber_buried', label: 'F-0 trunk', length: '40 m' },
     { id: uid(), fromEpId: ep('Substation 8').id,    toEpId: ep('Fiber FJ-42').id,    type: 'fiber_buried', label: '', length: '220 m' },
     { id: uid(), fromEpId: ep('Cabinet TS-42').id,   toEpId: ep('Light 42-N').id,     type: 'copper',       label: '',    length: '80 m' },
+    // Linked HQ placement → city infrastructure (satisfies the new validator).
+    { id: uid(), fromEpId: ep('HQ — placed in NYC').id, toEpId: ep('Fiber FJ-42').id, type: 'fiber_buried', label: 'HQ ↔ city fiber', length: '60 m' },
   ];
 
   // Seed a small space network: 4 LEO sats, 1 GEO relay, 2 ground stations, 1 station
@@ -7757,6 +7888,31 @@ function seedExample() {
     { id: uid(), fromAssetId: gs2.id,        toAssetId: leoSats[2].id, type: 'uplink',    label: 'cmd' },
     { id: uid(), fromAssetId: leoSats[0].id, toAssetId: geoRelay.id,   type: 'rf_isl',    label: '' },
     { id: uid(), fromAssetId: iss.id,        toAssetId: gs1.id,        type: 'downlink',  label: 'telemetry' },
+  ];
+
+  // Seed a small deep-space mesh anchored to real planets, with a handoff
+  // back to a ground station so the validator sees a full Local→Deep Space
+  // path on the demo.
+  const dsRelay = {
+    id: uid(), type: 'ds_relay', label: 'Mars Relay-1',
+    anchor: 'mars', x: 0, y: 0, anchorOffX: 30, anchorOffY: 0,
+    props: { operator: 'GreyNet DSN', notes: 'Anchored to Mars' },
+  };
+  const dsProbe = {
+    id: uid(), type: 'ds_probe', label: 'Jupiter Probe',
+    anchor: 'jupiter', x: 0, y: 0, anchorOffX: 25, anchorOffY: 20,
+    props: { operator: 'GreyNet', notes: 'Outer-system science probe' },
+  };
+  const dsArchive = {
+    id: uid(), type: 'ds_archive', label: 'Earth-L2 Archive',
+    anchor: 'jwst', x: 0, y: 0,
+    props: { operator: 'GreyNet', notes: 'Cold archive at Earth-Sun L2' },
+  };
+  state.deepSpaceUnits = [dsRelay, dsProbe, dsArchive];
+  state.deepSpaceLinks = [
+    { id: uid(), fromId: dsProbe.id, toId: dsRelay.id, type: 'ds_relay', label: 'Jupiter→Mars relay' },
+    { id: uid(), fromId: dsRelay.id, toId: gs1.id,     type: 'ds_dsn',   label: 'Mars→Earth DSN' },
+    { id: uid(), fromId: dsArchive.id, toId: gs2.id,   type: 'ds_dsn',   label: 'L2→Earth DSN' },
   ];
 }
 

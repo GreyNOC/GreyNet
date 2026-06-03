@@ -72,46 +72,50 @@ const SECTION_DEFINITIONS = new Proxy({}, {
 /* COMPLETION CHECKS                                                        */
 /* ------------------------------------------------------------------------ */
 
+// Delegates to validateArchitectureGraph (validator.js) so progression chips
+// reflect the same connectivity rules the rest of the app uses.
+//
+// Falls back to legacy shallow checks ONLY if validator.js failed to load
+// (e.g. in unit tests that boot a stripped DOM). This keeps the app
+// debuggable without silently masking missing modules.
 function checkSectionComplete(section) {
+  if (typeof validateArchitectureGraph === 'function') {
+    try {
+      const v = validateArchitectureGraph(state);
+      return !!v.sectionStatus?.[section]?.complete;
+    } catch (e) {
+      // Fall through to legacy
+      console.warn('validateArchitectureGraph failed; using legacy check', e);
+    }
+  }
   switch (section) {
-    case 'local': {
-      const devices = state.devices || [];
-      const links   = state.links   || [];
-      return devices.length >= 3 && links.length >= 1;
-    }
-    case 'city': {
-      const cities    = state.cities    || [];
-      const endpoints = state.endpoints || [];
-      const sites     = state.sites     || [];
-      if (cities.length === 0 || endpoints.length === 0) return false;
-      // Either an endpoint linked to a site, or simply ≥1 endpoint in any city,
-      // is enough to consider the city layer "in use".
-      const hasLinkedSite = endpoints.some(ep => ep.siteId && sites.find(s => s.id === ep.siteId));
-      return hasLinkedSite || endpoints.length >= 2;
-    }
-    case 'planet': {
-      const sites     = state.sites       || [];
-      const siteLinks = state.siteLinks   || [];
-      const infra     = state.planetInfra || [];
-      // Either inter-site connectivity, OR explicit global infrastructure.
-      if (infra.length >= 1) return true;
-      return sites.length >= 2 && siteLinks.length >= 1;
-    }
+    case 'local':
+      return (state.devices || []).length >= 3 && (state.links || []).length >= 1;
+    case 'city':
+      return (state.cities || []).length >= 1 && (state.endpoints || []).length >= 1;
+    case 'planet':
+      return (state.sites || []).length >= 2 && (state.siteLinks || []).length >= 1;
     case 'orbit': {
-      const assets = state.spaceAssets || [];
-      const links  = state.spaceLinks  || [];
-      const hasGS  = assets.some(a => a.type === 'ground_station');
-      const hasSat = assets.some(a => a.type !== 'ground_station');
-      const hasUplink = links.some(l => ['uplink','downlink','feeder'].includes(l.type));
-      return hasGS && hasSat && hasUplink;
+      const assets = state.spaceAssets || [], links = state.spaceLinks || [];
+      return assets.some(a => a.type === 'ground_station')
+          && assets.some(a => a.type !== 'ground_station')
+          && links.some(l => ['uplink','downlink','feeder'].includes(l.type));
     }
-    case 'deepspace': {
-      const units = state.deepSpaceUnits || [];
-      const links = state.deepSpaceLinks || [];
-      return units.length >= 1 && (links.length >= 1 || units.length >= 2);
-    }
+    case 'deepspace':
+      return (state.deepSpaceUnits || []).length >= 1
+          && ((state.deepSpaceLinks || []).length >= 1 || (state.deepSpaceUnits || []).length >= 2);
     default: return false;
   }
+}
+
+// Expose section blockers so the warnings tray + properties panel can show
+// "what's still missing" for an incomplete section.
+function sectionBlockersForUi(section) {
+  if (typeof validateArchitectureGraph !== 'function') return [];
+  try {
+    const v = validateArchitectureGraph(state);
+    return v.sectionStatus?.[section]?.blockers || [];
+  } catch (_) { return []; }
 }
 
 /* ------------------------------------------------------------------------ */
@@ -218,21 +222,38 @@ function renderProgressTray() {
     b.addEventListener('click', () => {
       const sec = b.getAttribute('data-prog-section');
       if (!isSectionUnlocked(sec)) {
-        const def = sectionDef(sec);
-        const reqDef = def.requires ? sectionDef(def.requires) : null;
-        alert(
-          t('ui.lockedAlertTitle', { section: def.label }) + '\n\n' +
-          t('ui.lockedAlertBody', {
-            section: def.label,
-            requires: reqDef ? reqDef.label : 'the previous section',
-            actionHint: reqDef ? reqDef.actionHint : '',
-          })
-        );
+        showLockedSectionDialog(sec);
         return;
       }
       setViewMode(SECTION_TO_VIEW[sec]);
     });
   });
+}
+
+// Centralized locked-section dialog. Prefers the in-app modal; falls back
+// to the native alert() only if the modal helper isn't loaded (tests).
+function showLockedSectionDialog(section) {
+  const def = sectionDef(section);
+  const reqDef = def.requires ? sectionDef(def.requires) : null;
+  const title = t('ui.lockedAlertTitle', { section: def.label });
+  const body  = t('ui.lockedAlertBody', {
+    section: def.label,
+    requires: reqDef ? reqDef.label : 'the previous section',
+    actionHint: reqDef ? reqDef.actionHint : '',
+  });
+  // Add live blockers from the validator so the user knows what to do.
+  const blockers = (typeof sectionBlockersForUi === 'function' && reqDef)
+    ? sectionBlockersForUi(def.requires)
+    : [];
+  const richBody = blockers.length
+    ? body + '\n\nStill needed:\n• ' + blockers.join('\n• ')
+    : body;
+  if (typeof showModalAlert === 'function') {
+    showModalAlert(title, richBody);
+  } else {
+    // eslint-disable-next-line no-alert
+    alert(title + '\n\n' + richBody);
+  }
 }
 
 function escapeHtmlSafe(s) {
@@ -363,16 +384,7 @@ function progressionCanEnter(view) {
   const sec = VIEW_TO_SECTION[view];
   if (!sec) return true;
   if (isSectionUnlocked(sec)) return true;
-  const def = sectionDef(sec);
-  const reqDef = def.requires ? sectionDef(def.requires) : null;
-  alert(
-    t('ui.lockedAlertTitle', { section: def.label }) + '\n\n' +
-    t('ui.lockedAlertBody', {
-      section: def.label,
-      requires: reqDef ? reqDef.label : 'the previous section',
-      actionHint: reqDef ? reqDef.actionHint : '',
-    })
-  );
+  showLockedSectionDialog(sec);
   return false;
 }
 
