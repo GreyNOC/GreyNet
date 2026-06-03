@@ -2348,7 +2348,11 @@ function renderCityProperties(c) {
     inp.addEventListener('change', () => {
       pushHistory();
       const key = inp.getAttribute('data-key');
-      c[key] = inp.getAttribute('data-num') ? Number(inp.value) || 0 : inp.value;
+      let value = inp.getAttribute('data-num') ? Number(inp.value) || 0 : inp.value;
+      // Same sanitizer the save/load path uses — keeps javascript:/data:
+      // and traversal strings out of city.imageUrl regardless of entry point.
+      if (key === 'imageUrl' && typeof value === 'string') value = cleanUrl(value);
+      c[key] = value;
       syncTileMap();
       renderAll();
     });
@@ -4580,7 +4584,11 @@ function cleanUrl(value) {
     const parsed = new URL(url);
     return parsed.protocol === 'https:' ? url : '';
   } catch (e) {
-    return /^[\w./ -]+\.(png|jpe?g|webp|gif)$/i.test(url) ? url : '';
+    // Relative-filename fallback. Reject path traversal, absolute paths,
+    // and backslash separators so a hand-edited save can't point the SVG
+    // <image href> at arbitrary local files.
+    if (url.includes('..') || url.startsWith('/') || url.startsWith('\\') || url.includes('\\')) return '';
+    return /^[\w. -]+(?:\/[\w. -]+)*\.(png|jpe?g|webp|gif)$/i.test(url) ? url : '';
   }
 }
 
@@ -5708,7 +5716,7 @@ async function showSettings() {
         <div>
           <label>Anthropic API key</label>
           <input id="set-ai-anthropic" type="password" autocomplete="off" value="" placeholder="${state.hasAiKeys.anthropic ? 'Saved - leave blank to keep' : 'sk-ant-...'}"/>
-          <div class="form-help">Stored encrypted by the desktop app. Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank">console.anthropic.com</a>.</div>
+          <div class="form-help">Stored encrypted by the desktop app. Get a key at <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer">console.anthropic.com</a>.</div>
         </div>
         <div>
           <label>Anthropic model <span style="color:var(--text-faint);font-weight:400">(optional override)</span></label>
@@ -5720,7 +5728,7 @@ async function showSettings() {
         <div>
           <label>OpenAI API key</label>
           <input id="set-ai-openai" type="password" autocomplete="off" value="" placeholder="${state.hasAiKeys.openai ? 'Saved - leave blank to keep' : 'sk-...'}"/>
-          <div class="form-help">Stored encrypted by the desktop app. Get a key at <a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com</a>.</div>
+          <div class="form-help">Stored encrypted by the desktop app. Get a key at <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">platform.openai.com</a>.</div>
         </div>
         <div>
           <label>OpenAI model <span style="color:var(--text-faint);font-weight:400">(optional override)</span></label>
