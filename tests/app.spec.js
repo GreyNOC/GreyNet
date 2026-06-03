@@ -143,9 +143,14 @@ test.describe('GreyNet — progression unlocks correctly', () => {
         { id:'d3', type:'server',   x:0, y:0, label:'Sv', props:{}, siteId: hq },
       ];
       state.links = [{ id:'l1', fromId:'d1', toId:'d2', type:'ethernet', label:'' }];
-      // City
+      // City — the new strict validator requires: a city, ≥1 site placement
+      // (endpoint with siteId), ≥1 city-infra endpoint, AND a link between them.
       state.cities = [{ id:'c1', name:'NYC', centerLat:40, centerLng:-74, mapW:2000, mapH:1400, mapBackend:'osm', imageUrl:'', notes:'' }];
-      state.endpoints = [{ id:'e1', type:'building', label:'B', x:0, y:0, lat:null, lng:null, cityId:'c1', siteId: hq, props:{} }];
+      state.endpoints = [
+        { id:'e1', type:'building', label:'B', x:0, y:0, lat:null, lng:null, cityId:'c1', siteId: hq, props:{} },
+        { id:'e2', type:'cabinet',  label:'CAB', x:50, y:0, lat:null, lng:null, cityId:'c1', props:{} },
+      ];
+      state.cityLinks = [{ id:'cl1', fromEpId:'e1', toEpId:'e2', type:'fiber_buried', label:'' }];
       // Planet
       state.sites.push({ id:'s2', type:'datacenter', name:'DC', lat:50, lng:10, address:'', notes:'', color:'#fff' });
       state.siteLinks = [{ id:'sl1', fromSiteId: hq, toSiteId:'s2', type:'wan', label:'' }];
@@ -155,12 +160,15 @@ test.describe('GreyNet — progression unlocks correctly', () => {
         { id:'sat1', type:'satellite_leo', label:'Sat', angle:0.3, orbit:'leo', props:{} },
       ];
       state.spaceLinks = [{ id:'spl1', fromAssetId:'gs1', toAssetId:'sat1', type:'uplink', label:'' }];
-      // Deep Space
+      // Deep Space — the new strict validator requires a handoff back to orbit.
       state.deepSpaceUnits = [
-        { id:'du1', type:'ds_relay', label:'R', x:100, y:100, props:{} },
+        { id:'du1', type:'ds_relay', label:'R', x:100, y:100, anchor:'mars', props:{} },
         { id:'du2', type:'ds_probe', label:'P', x:200, y:200, props:{} },
       ];
-      state.deepSpaceLinks = [{ id:'dl1', fromId:'du1', toId:'du2', type:'ds_laser', label:'' }];
+      state.deepSpaceLinks = [
+        { id:'dl1', fromId:'du1', toId:'du2',  type:'ds_laser', label:'' },
+        { id:'dl2', fromId:'du1', toId:'gs1',  type:'ds_dsn',   label:'handoff' }, // cross-domain
+      ];
       evaluateProgression();
       decorateViewButtons();
     });
