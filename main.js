@@ -22,6 +22,19 @@ const ALLOWED_EXTERNAL_HOSTS = new Set([
 
 const ALLOWED_AI_PROVIDERS = new Set(['anthropic', 'openai']);
 
+// Hard caps for secrets the renderer can push into secure-settings.json.
+// Real provider keys are well under these bounds; the limit is to prevent
+// a compromised renderer (or hand-edited file replayed through the IPC)
+// from filling the secrets file with megabytes of attacker data.
+const MAX_API_KEY_LEN = 512;
+const MAX_GMAPS_KEY_LEN = 256;
+
+// Minimum gap between successful ai:call requests, in milliseconds. The
+// key never leaves the main process, so the worst a compromised renderer
+// can do is spam billable API calls — this caps that to a sane ceiling.
+const AI_CALL_COOLDOWN_MS = 1500;
+let _lastAiCallAt = 0;
+
 function isAllowedExternalUrl(rawUrl) {
   try {
     const url = new URL(rawUrl);
@@ -135,7 +148,8 @@ function registerIpc() {
     for (const providerName of ALLOWED_AI_PROVIDERS) {
       const value = payload?.aiApiKeys?.[providerName];
       if (typeof value === 'string' && value.trim()) {
-        next.aiApiKeys[providerName] = encryptSecret(value.trim());
+        const trimmed = value.trim().slice(0, MAX_API_KEY_LEN);
+        next.aiApiKeys[providerName] = encryptSecret(trimmed);
       } else if (value === '') {
         next.aiApiKeys[providerName] = '';
       }
@@ -147,7 +161,7 @@ function registerIpc() {
     }
 
     if (typeof payload?.gmapsApiKey === 'string' && payload.gmapsApiKey.trim()) {
-      next.gmapsApiKey = encryptSecret(payload.gmapsApiKey.trim());
+      next.gmapsApiKey = encryptSecret(payload.gmapsApiKey.trim().slice(0, MAX_GMAPS_KEY_LEN));
     } else if (payload?.gmapsApiKey === '') {
       next.gmapsApiKey = '';
     }
@@ -159,6 +173,13 @@ function registerIpc() {
   ipcMain.handle('settings:gmaps-key', () => decryptSecret(readSecureSettings().gmapsApiKey));
 
   ipcMain.handle('ai:call', async (_event, payload) => {
+    const now = Date.now();
+    const wait = AI_CALL_COOLDOWN_MS - (now - _lastAiCallAt);
+    if (wait > 0) {
+      throw new Error(`Slow down — try again in ${(wait / 1000).toFixed(1)}s.`);
+    }
+    _lastAiCallAt = now;
+
     const settings = readSecureSettings();
     const provider = ALLOWED_AI_PROVIDERS.has(settings.aiProvider) ? settings.aiProvider : 'anthropic';
     const key = decryptSecret(settings.aiApiKeys?.[provider]);
