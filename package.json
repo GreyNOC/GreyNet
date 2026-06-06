@@ -1,6 +1,6 @@
 {
   "name": "greynet",
-  "version": "0.6.0",
+  "version": "0.6.1",
   "description": "GreyNet — offline network designer (CAD-style) with City / Planet / Space views.",
   "main": "main.js",
   "private": true,
