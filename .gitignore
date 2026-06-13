@@ -4,6 +4,8 @@ dist/
 build/
 out/
 *.tsbuildinfo
+# Generated SBOM (produced in CI / `npm run sbom`, uploaded as an artifact)
+sbom.cdx.json
 .npm/
 .yarn/
 .pnp.*

@@ -164,6 +164,7 @@ const dom = {
   cityNewBtn:      document.getElementById('city-new-btn'),
   cityImageBtn:    document.getElementById('city-image-btn'),
   cityImageInput:  document.getElementById('city-image-input'),
+  cityOnlineHint:  document.getElementById('city-online-hint'),
   viewToggleBtn: document.getElementById('view-toggle-btn'),
   emptyState:    document.getElementById('empty-state'),
   emptyStateTitle: document.getElementById('empty-state-title'),

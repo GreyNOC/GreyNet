@@ -603,6 +603,10 @@
         <button id="city-new-btn" title="Add a new city">+ New city</button>
         <button id="city-image-btn" title="Upload an image to use as the city backdrop">Upload image…</button>
         <input type="file" id="city-image-input" accept="image/*" hidden>
+        <!-- Shown only when the active city backend fetches tiles over the internet. -->
+        <span id="city-online-hint" hidden title="This map backend fetches tiles over the internet"
+          style="display:inline-flex;align-items:center;gap:4px;font-size:10.5px;color:#f5d77a;
+                 background:#2a230f;border:1px solid #7a611e;border-radius:4px;padding:1px 7px">🌐 Online map backend</span>
       </div>
       <span class="sb-flex"></span>
       <span class="sb-mode-hint" id="sb-mode-hint">Local view — designing this site's network</span>
