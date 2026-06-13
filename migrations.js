@@ -69,20 +69,24 @@
 
       // Remove orphan links (defensive — sanitizeDiagram does this too, but
       // doing it here lets older saves migrate cleanly without losing useful
-      // shape data).
-      const deviceIds = new Set((d.devices || []).map(x => x.id));
-      const epIds     = new Set((d.endpoints || []).map(x => x.id));
-      const siteIds   = new Set((d.sites || []).map(x => x.id));
-      const assetIds  = new Set((d.spaceAssets || []).map(x => x.id));
-      const dsIds     = new Set((d.deepSpaceUnits || []).map(x => x.id));
+      // shape data). Coerce every collection to an array first: a malicious or
+      // hand-edited file can set these to a string/number/object, and calling
+      // .map()/.filter() on a non-array would crash the whole import.
+      const arr = (v) => Array.isArray(v) ? v : [];
+      const idOf = (x) => (x && typeof x === 'object') ? x.id : undefined;
+      const deviceIds = new Set(arr(d.devices).map(idOf));
+      const epIds     = new Set(arr(d.endpoints).map(idOf));
+      const siteIds   = new Set(arr(d.sites).map(idOf));
+      const assetIds  = new Set(arr(d.spaceAssets).map(idOf));
+      const dsIds     = new Set(arr(d.deepSpaceUnits).map(idOf));
 
-      d.links     = (d.links     || []).filter(l => deviceIds.has(l.fromId) && deviceIds.has(l.toId));
-      d.siteLinks = (d.siteLinks || []).filter(l => siteIds.has(l.fromSiteId) && siteIds.has(l.toSiteId));
-      d.cityLinks = (d.cityLinks || []).filter(l => epIds.has(l.fromEpId) && epIds.has(l.toEpId));
-      d.spaceLinks = (d.spaceLinks || []).filter(l => assetIds.has(l.fromAssetId) && assetIds.has(l.toAssetId));
+      d.links     = arr(d.links).filter(l => l && deviceIds.has(l.fromId) && deviceIds.has(l.toId));
+      d.siteLinks = arr(d.siteLinks).filter(l => l && siteIds.has(l.fromSiteId) && siteIds.has(l.toSiteId));
+      d.cityLinks = arr(d.cityLinks).filter(l => l && epIds.has(l.fromEpId) && epIds.has(l.toEpId));
+      d.spaceLinks = arr(d.spaceLinks).filter(l => l && assetIds.has(l.fromAssetId) && assetIds.has(l.toAssetId));
       // Deep-space links may also cross-reference orbit assets (handoff).
-      d.deepSpaceLinks = (d.deepSpaceLinks || []).filter(l =>
-        (dsIds.has(l.fromId) || assetIds.has(l.fromId)) &&
+      d.deepSpaceLinks = arr(d.deepSpaceLinks).filter(l =>
+        l && (dsIds.has(l.fromId) || assetIds.has(l.fromId)) &&
         (dsIds.has(l.toId)   || assetIds.has(l.toId))
       );
 

@@ -17,9 +17,73 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  audit:
-    name: npm audit + custom security audit
-    runs-on: ubuntu-latest
+  # ---------------------------------------------------------------------------
+  # verify: the canonical gate — npm ci → check → security:audit.
+  # Runs on Ubuntu (canonical) and Windows (GreyNet ships as a Windows app, so
+  # we exercise the tooling there too). No secrets required.
+  # ---------------------------------------------------------------------------
+  verify:
+    name: check + security audit (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      # --ignore-scripts: don't run package postinstall (e.g. the Electron
+      # binary download) — none of check/audit need it, and it's safer + faster.
+      - name: Install dependencies (no scripts)
+        run: npm ci --ignore-scripts
+
+      - name: Syntax check (npm run check)
+        run: npm run check
+
+      # security:audit = `npm audit --audit-level=high` (blocking) + the custom
+      # static audit (Electron hardening flags, IPC exposure, provider-call
+      # isolation, CSP/script allowlist, eval/new Function, etc.).
+      - name: Security audit (npm run security:audit)
+        run: npm run security:audit
+
+      # Moderate advisories are surfaced for triage but do not block the build,
+      # so a low-risk transitive advisory can't halt a release.
+      - name: npm audit (moderate, advisory)
+        run: npm audit --audit-level=moderate
+        continue-on-error: true
+
+      # SBOM is a build artifact, not a gate — generate + upload from Ubuntu only.
+      - name: Generate SBOM (CycloneDX)
+        if: runner.os == 'Linux'
+        run: npm run sbom
+
+      - name: Upload SBOM artifact
+        if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-cyclonedx
+          path: sbom.cdx.json
+          if-no-files-found: warn
+
+  # ---------------------------------------------------------------------------
+  # test: Playwright suite. The renderer is pure browser code, served statically
+  # and driven via Chromium — no Electron binary required. Ubuntu is the
+  # canonical run; Windows is included since the product targets Windows.
+  # ---------------------------------------------------------------------------
+  test:
+    name: playwright (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -33,34 +97,21 @@ jobs:
       - name: Install dependencies (no scripts)
         run: npm ci --ignore-scripts
 
-      - name: npm audit (high+ severity)
-        run: npm audit --audit-level=high
+      # --with-deps installs the OS libraries Chromium needs (Linux only); on
+      # Windows those libraries ship with the OS, so install the browser alone.
+      - name: Install Playwright Chromium (Linux)
+        if: runner.os == 'Linux'
+        run: npx playwright install --with-deps chromium
 
-      - name: Custom security audit
-        run: npm run security:audit
+      - name: Install Playwright Chromium (Windows)
+        if: runner.os == 'Windows'
+        run: npx playwright install chromium
 
-  syntax:
-    name: app.js / main.js / preload.js parse
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-      # GreyNet ships as an Electron app — no bundler. Run Node's syntax
-      # check on each renderer/main source so a typo can't silently ship.
-      - name: Parse main.js
-        run: node --check main.js
-      - name: Parse preload.js
-        run: node --check preload.js
-      - name: Parse constants.js
-        run: node --check constants.js
-      - name: Parse state.js
-        run: node --check state.js
-      - name: Parse app.js
-        run: node --check app.js
-      - name: Parse scripts/security-audit.js
-        run: node --check scripts/security-audit.js
+      # CI=true is set by Actions, so playwright.config starts its OWN static
+      # server (reuseExistingServer:false) and enables one retry. The server is
+      # `python -m http.server 8765`; both hosted runners ship `python`.
+      - name: Run Playwright tests
+        run: npm test
 
   gitleaks:
     name: Secret scan (gitleaks)

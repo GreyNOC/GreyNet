@@ -176,12 +176,12 @@ as known follow-ups:
   to send `addLink` / `addPlanetInfra` / etc. in the same response.
   Stronger guardrails (e.g. server-side schema validation before send)
   would harden this further.
-- **CI.** No GitHub Actions workflow runs `npm test` + `npm run check` on
-  push. There IS `.github/workflows/security-checks.yml`; adding a test
-  workflow is straightforward.
-- **`scripts/security-audit.js`** is a small heuristic check, not a
-  full SAST tool. Suitable for catching common regressions; not a
-  substitute for a real audit.
+- **`scripts/security-audit.js`** is a heuristic static check, not a
+  full SAST tool. It now scans every shipped source file for the common
+  regressions (insecure Electron flags, unguarded `shell.openExternal`,
+  renderer→provider fetches, secrets in localStorage, remote CDN scripts,
+  `eval`/`new Function`, wholesale `ipcRenderer`, `<webview>`, file://
+  traversal) — but it's a regression gate, not a substitute for a real audit.
 
 ## Known risks
 
@@ -214,13 +214,14 @@ as known follow-ups:
 
 | # | Acceptance criterion | Status |
 |---|----------------------|--------|
-| 1 | `npm test` passes | ✅ 43/43 |
-| 2 | `npm run security:audit` passes | ✅ |
-| 3 | `node --check` passes for all JS files | ✅ 17/17 (via `npm run check`) |
-| 4 | `npm run build` completes | ✅ `dist/GreyNet-0.6.0-portable.exe` + `setup.exe` |
+| 1 | `npm test` passes | ✅ 72/72 (app + production + security + reliability) |
+| 2 | `npm run security:audit` passes | ✅ (high-level npm audit + expanded custom audit) |
+| 3 | `node --check` passes for all JS files | ✅ 19/19 (via `npm run check`) |
+| 4 | `npm run build` completes | ✅ `dist/GreyNet-<version>-portable.exe` + `setup.exe` |
 | 5 | Packaged build includes progression.js + all runtime files | ✅ verified in `app.asar` |
-| 6 | App can load, save, and restore diagrams | ✅ |
+| 6 | App can load, save, and restore diagrams | ✅ (encrypted main-process autosave + corrupt-data recovery) |
 | 7 | Progression completion based on real validation | ✅ via `validateArchitectureGraph` |
 | 8 | AI actions cover every current type | ✅ prompt built from live constants |
 | 9 | Deep Space can be validated as connected | ✅ via DS↔orbit handoff or anchored+internal |
 | 10 | No production-breaking console errors at startup | ✅ |
+| 11 | CI runs check + audit + tests on push/PR | ✅ `.github/workflows/ci.yml` (Ubuntu + Windows) |

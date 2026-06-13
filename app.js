@@ -1068,6 +1068,11 @@ function spaceLinkMetrics(a, b) {
 // a scaled rate (one full revolution per ~90 visible seconds).
 function startOrbitAnimation() {
   if (_orbitAnim.runs) return;
+  // Reduced motion: show the globe once, statically -- skip the rotation loop.
+  if (prefersReducedMotion()) {
+    if (state.viewMode === 'space') renderEarth3D(_orbitAnim.earthAngle);
+    return;
+  }
   _orbitAnim.runs = true;
   _orbitAnim.lastTs = performance.now();
   const step = (ts) => {
@@ -1506,11 +1511,14 @@ function buildLiveLayer() {
       href: '#plane-shape',
       x: -12, y: -8, width: 24, height: 16,
     }));
-    const motion = svgEl('animateMotion', {
-      dur: dur + 's', repeatCount: 'indefinite', rotate: 'auto', path: d,
-      begin: `${-i * 3}s`,
-    });
-    planeWrap.appendChild(motion);
+    if (prefersReducedMotion()) {
+      planeWrap.setAttribute('transform', `translate(${pa.x}, ${pa.y})`);
+    } else {
+      planeWrap.appendChild(svgEl('animateMotion', {
+        dur: dur + 's', repeatCount: 'indefinite', rotate: 'auto', path: d,
+        begin: `${-i * 3}s`,
+      }));
+    }
     planeGroup.appendChild(planeWrap);
   }
   frag.appendChild(planeGroup);
@@ -1539,15 +1547,29 @@ function buildLiveLayer() {
     satWrap.appendChild(svgEl('use', {
       href: '#satellite-shape', x: -12, y: -8, width: 24, height: 16,
     }));
-    satWrap.appendChild(svgEl('animateMotion', {
-      dur: o.dur + 's', repeatCount: 'indefinite', rotate: 'auto', path: d,
-      begin: ((o.delay || 0) + i * 4) + 's',
-    }));
+    if (prefersReducedMotion()) {
+      const midY = isHorizontal ? o.yLow : (o.yLow + o.yHigh) / 2;
+      satWrap.setAttribute('transform', `translate(1800, ${midY})`);
+    } else {
+      satWrap.appendChild(svgEl('animateMotion', {
+        dur: o.dur + 's', repeatCount: 'indefinite', rotate: 'auto', path: d,
+        begin: ((o.delay || 0) + i * 4) + 's',
+      }));
+    }
     satGroup.appendChild(satWrap);
   }
   frag.appendChild(satGroup);
 
   layer.appendChild(frag);
+}
+
+// Honor the OS "reduce motion" setting for SVG SMIL (<animateMotion>) loops.
+// SMIL timing is independent of CSS, so the prefers-reduced-motion CSS block
+// cannot stop the moving plane / satellite / light-speed packet -- we gate
+// them here and place the icon statically instead.
+function prefersReducedMotion() {
+  try { return !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches); }
+  catch (e) { return false; }
 }
 
 function renderSites() {
@@ -3491,11 +3513,38 @@ function setTileStatus(message, level = 'info') {
   status.textContent = message;
 }
 
+// Visible badge in the city bar whenever the active city's backend pulls map
+// tiles over the internet (OSM or Google Maps). Hidden for the offline image
+// backend so the user always knows when GreyNet is talking to the network.
+function updateOnlineMapHint() {
+  if (!dom.cityOnlineHint) return;
+  const city = cityById(state.activeCityId);
+  const backend = (state.viewMode === 'city' && city) ? city.mapBackend : null;
+  const online = backend === 'osm' || backend === 'gmaps';
+  dom.cityOnlineHint.hidden = !online;
+  if (online) {
+    dom.cityOnlineHint.textContent = backend === 'gmaps'
+      ? '🌐 Online map: Google Maps'
+      : '🌐 Online map: OpenStreetMap';
+  }
+}
+
+// NETWORK ISOLATION INVARIANT (see also main.js NETWORK allowlist + CSP):
+// Only this function reaches the network for maps, and only when the *active*
+// city's backend is explicitly online:
+//   • 'osm'   → ensureLeafletMap → OpenStreetMap tiles (no key).
+//   • 'gmaps' → ensureGoogleMap  → Google Maps JS SDK (renderer-visible key).
+//   • 'image' (DEFAULT) → pure offline; the SVG <image> draws a local data:
+//                         URI or bundled asset and NO tile/script request is
+//                         made. The Leaflet/Google branches below are never
+//                         entered for it.
+// Keep this the single chokepoint — don't load tiles from anywhere else.
 function syncTileMap() {
   const city = cityById(state.activeCityId);
   const showTile = state.viewMode === 'city' && city && (city.mapBackend === 'osm' || city.mapBackend === 'gmaps');
   dom.tileMap.classList.toggle('hidden', !showTile);
   dom.svg.classList.toggle('has-tile-map', !!showTile);
+  updateOnlineMapHint();
   if (!showTile) {
     setTileStatus('');
     _activeBackend = null;
@@ -3999,6 +4048,7 @@ function updateSiteBar() {
     dom.sbContextLabel.textContent = city ? 'City' : '—';
     dom.sbActiveSiteName.textContent = city ? city.name : '(no city)';
     if (city) dom.cityBackendSel.value = city.mapBackend || 'osm';
+    updateOnlineMapHint();
     dom.sbModeHint.textContent = state.activeEndpointType
       ? `Click the map to place a ${ENDPOINT_TYPES[state.activeEndpointType].label}.`
       : (state.mode === 'connect'
@@ -4568,11 +4618,20 @@ function cleanEnum(value, table, fallback) {
   return Object.prototype.hasOwnProperty.call(table, value) ? value : fallback;
 }
 
+// Prototype-pollution guard: a hand-edited or malicious import must never be
+// able to inject __proto__ / constructor / prototype keys into a props bag.
+// Assigning out['__proto__'] = ... would hit the prototype setter; the others
+// would shadow built-ins. We drop them outright (and re-check after cleaning,
+// in case cleanString normalizes into a dangerous name).
+const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 function cleanProps(props) {
   const out = {};
   if (!props || typeof props !== 'object' || Array.isArray(props)) return out;
   for (const [k, v] of Object.entries(props).slice(0, 50)) {
-    out[cleanString(k, 64)] = cleanString(v, MAX_PROP_STRING);
+    if (DANGEROUS_KEYS.has(k)) continue;
+    const key = cleanString(k, 64);
+    if (DANGEROUS_KEYS.has(key)) continue;
+    out[key] = cleanString(v, MAX_PROP_STRING);
   }
   return out;
 }
@@ -5416,32 +5475,141 @@ function connectSpaceAssets() {
   return added;
 }
 
-// Autosave to localStorage. Anything we put in localStorage must be treated
-// as untrusted on read — another script (extension, dev tools, malicious
-// browser session) could have rewritten it. Every restore goes through the
-// same sanitizeDiagram() the file-open path uses.
+/* -------------------------------------------------------------------------
+   AUTOSAVE  (privacy-aware, encrypted-at-rest when available)
+
+   Saved diagrams are SENSITIVE — they can hold hostnames, IP ranges, site
+   addresses, and architecture notes. Two backends:
+
+     • Desktop (Electron): the diagram is handed to the main process and
+       encrypted with the OS keychain (DPAPI on Windows) via safeStorage.
+       Nothing sensitive is written to renderer localStorage.
+     • Fallback (plain browser / tests / no OS encryption): localStorage,
+       exactly as the app behaved before.
+
+   Either way the restore path treats stored bytes as UNTRUSTED and runs them
+   through the same sanitizeDiagram() the file-open path uses (another script,
+   extension, or hand-edited profile could have rewritten them). Autosave is
+   suppressed entirely in Private Mode or when the user disables it.
+   ------------------------------------------------------------------------- */
 const AUTOSAVE_MAX_BYTES = 8 * 1024 * 1024;     // 8 MB hard ceiling
-function autosave() {
+let _encAutosave = false;     // true once the encrypted main-process store is confirmed available
+let _autosaveProbed = false;  // true once we've decided which backend to use (avoids a plaintext race)
+let _autosaveRecovered = false; // true if a corrupt autosave was detected + reset on this startup
+
+// --- User privacy preferences (non-secret booleans) ---------------------
+const PREFS_KEY = 'greynet:prefs:v1';
+const DEFAULT_PREFS = { autosaveEnabled: true, privateMode: false };
+function loadPrefs() {
   try {
-    const payload = JSON.stringify(diagramToJson());
-    if (payload.length > AUTOSAVE_MAX_BYTES) return;  // too big — skip
-    localStorage.setItem(STORAGE_KEY, payload);
-  } catch (e) { /* quota / serialization failures: leave previous autosave intact */ }
+    const raw = localStorage.getItem(PREFS_KEY);
+    if (!raw) return { ...DEFAULT_PREFS };
+    const p = JSON.parse(raw);
+    return {
+      autosaveEnabled: typeof p.autosaveEnabled === 'boolean' ? p.autosaveEnabled : true,
+      privateMode:     typeof p.privateMode     === 'boolean' ? p.privateMode     : false,
+    };
+  } catch (e) { return { ...DEFAULT_PREFS }; }
 }
-function tryRestoreAutosave() {
+function savePrefs() {
+  try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch (e) {}
+}
+let prefs = loadPrefs();
+
+// Private Mode OR autosave-disabled means: never persist the diagram.
+function autosaveAllowed() {
+  return prefs.autosaveEnabled && !prefs.privateMode;
+}
+
+function readLocalAutosave() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return false;
-    if (raw.length > AUTOSAVE_MAX_BYTES) {        // someone stuffed the slot
-      localStorage.removeItem(STORAGE_KEY);
-      return false;
+    if (raw && raw.length > AUTOSAVE_MAX_BYTES) { localStorage.removeItem(STORAGE_KEY); return ''; }
+    return raw || '';
+  } catch (e) { return ''; }
+}
+
+function autosave() {
+  // Skip until the backend is known (prevents a one-tick plaintext write on
+  // desktop before we confirm encryption is available), and when not allowed.
+  if (!_autosaveProbed || !autosaveAllowed()) return;
+  let payload;
+  try { payload = JSON.stringify(diagramToJson()); }
+  catch (e) { return; }                              // serialization failure: keep previous autosave
+  if (payload.length > AUTOSAVE_MAX_BYTES) return;   // too big — skip
+  if (_encAutosave && window.greynetSecure?.autosaveSave) {
+    // Fire-and-forget; encrypted at rest by the main process.
+    Promise.resolve(window.greynetSecure.autosaveSave(payload)).catch(() => {});
+  } else {
+    try { localStorage.setItem(STORAGE_KEY, payload); } catch (e) {}
+  }
+}
+
+// Probe which backend to use. Always run at startup so toggling Private Mode
+// off later still lets autosave resume.
+async function initAutosaveBackend() {
+  if (window.greynetSecure?.autosaveStatus) {
+    try {
+      const status = await window.greynetSecure.autosaveStatus();
+      _encAutosave = !!(status && status.available);
+    } catch (e) { _encAutosave = false; }
+  }
+  _autosaveProbed = true;
+}
+
+// Wipe every local copy of the diagram from both backends. Used by the
+// "Clear local data" button and whenever the user enables Private Mode or
+// disables autosave.
+async function purgeAutosave() {
+  try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+  if (window.greynetSecure?.autosaveClear) {
+    try { await window.greynetSecure.autosaveClear(); } catch (e) {}
+  }
+}
+
+// Pull the raw autosave string from the active backend, migrating a legacy
+// plaintext localStorage autosave into the encrypted store (then deleting the
+// plaintext copy) the first time we run on the desktop build.
+async function loadAutosaveRaw() {
+  if (_encAutosave && window.greynetSecure?.autosaveLoad) {
+    let raw = '';
+    try { raw = (await window.greynetSecure.autosaveLoad()) || ''; } catch (e) { raw = ''; }
+    if (!raw) {
+      const legacy = readLocalAutosave();
+      if (legacy) {
+        try { await window.greynetSecure.autosaveSave(legacy); } catch (e) {}
+        try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}  // delete plaintext after migration
+        raw = legacy;
+      }
+    } else {
+      // Encrypted store is authoritative — drop any stale plaintext copy.
+      try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
     }
+    return raw;
+  }
+  return readLocalAutosave();
+}
+
+// Async restore used at startup. Honors Private Mode (no restore + purge any
+// leftover). Returns whether a diagram was restored.
+async function restoreAutosave() {
+  if (prefs.privateMode) { await purgeAutosave(); return false; }
+  const raw = await loadAutosaveRaw();
+  return applyAutosaveRaw(raw);
+}
+
+// Apply a raw autosave string. Treats input as UNTRUSTED: migrate → sanitize
+// → only adopt if it actually contains content.
+function applyAutosaveRaw(raw) {
+  try {
+    if (!raw) return false;
+    // Corrupt-autosave recovery: an oversized or unparseable blob is reset so
+    // it can never brick startup. We flag it so init() can tell the user their
+    // previous session couldn't be recovered (instead of silently vanishing).
+    if (raw.length > AUTOSAVE_MAX_BYTES) { _autosaveRecovered = true; void purgeAutosave(); return false; }
     let obj;
     try { obj = JSON.parse(raw); }
-    catch (e) {
-      localStorage.removeItem(STORAGE_KEY);
-      return false;
-    }
+    catch (e) { _autosaveRecovered = true; void purgeAutosave(); return false; }
     if (!obj || typeof obj !== 'object' || Array.isArray(obj)) return false;
     if (obj.app !== 'GreyNet' && obj.app !== 'gREYnET') return false;
     if (typeof migrateDiagram === 'function') {
@@ -5488,6 +5656,28 @@ function tryRestoreAutosave() {
   } catch (e) { /* unreachable, but be defensive */ }
   return false;
 }
+
+// Back-compat shim: synchronous localStorage restore (used by tests/older
+// callers that drive autosave directly without the Electron bridge).
+function tryRestoreAutosave() {
+  return applyAutosaveRaw(readLocalAutosave());
+}
+
+// Clear every local trace of the current session: the autosaved diagram (both
+// encrypted and plaintext backends) plus non-secret local caches (legacy
+// settings blob, live-map toggle). Does NOT touch provider API keys — those
+// live in the OS-encrypted secure-settings file and are managed from the key
+// fields in Settings. Privacy prefs are kept so Private Mode stays on.
+async function clearLocalData() {
+  await purgeAutosave();
+  for (const k of [SETTINGS_KEY, LIVE_MAP_KEY]) {
+    try { localStorage.removeItem(k); } catch (e) {}
+  }
+  // The live, in-memory diagram is intentionally left untouched (use "New"
+  // to discard it). If autosave is still enabled it will re-persist on the
+  // next tick — pair this with Private Mode / disabling autosave for a wipe.
+}
+
 setInterval(autosave, 5000);
 
 
@@ -5702,6 +5892,9 @@ async function showSettings() {
   await loadSettings();
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay';
+  const autosaveBackendNote = _encAutosave
+    ? 'On this desktop build the autosave is <b>encrypted</b> by the operating system keychain and stored outside the browser profile.'
+    : 'On this build the autosave is stored in the local browser profile (not encrypted) — use Private Mode for sensitive work.';
   overlay.innerHTML = `
     <div class="modal" style="min-width:520px;max-width:92vw">
       <h3>Settings</h3>
@@ -5722,7 +5915,7 @@ async function showSettings() {
           <label>Anthropic model <span style="color:var(--text-faint);font-weight:400">(optional override)</span></label>
           <input id="set-ai-anthropic-model" type="text" autocomplete="off"
             value="${escapeHtml(state.aiModel?.anthropic || '')}"
-            placeholder="claude-opus-4-7"/>
+            placeholder="claude-opus-4-8"/>
           <div class="form-help">Leave blank to use the built-in default.</div>
         </div>
         <div>
@@ -5747,6 +5940,25 @@ async function showSettings() {
         <b>Security note:</b> API keys are stored by the Electron main process, not renderer localStorage.
         Leave a saved key field blank to keep it, or type <code>clear</code> to remove it.
       </p>
+
+      <h4 style="margin:18px 0 6px;border-top:1px solid var(--border,#1f2937);padding-top:14px">Local data &amp; privacy</h4>
+      <p class="form-help" style="margin-top:0">
+        Saved diagrams can contain hostnames, IP ranges, site addresses, and architecture notes.
+        ${autosaveBackendNote}
+      </p>
+      <label style="display:flex;align-items:center;gap:8px;margin:8px 0;font-weight:400">
+        <input id="set-autosave-enabled" type="checkbox" ${prefs.autosaveEnabled ? 'checked' : ''}/>
+        Enable autosave
+      </label>
+      <label style="display:flex;align-items:center;gap:8px;margin:8px 0;font-weight:400">
+        <input id="set-private-mode" type="checkbox" ${prefs.privateMode ? 'checked' : ''}/>
+        Private Mode — never write the diagram to disk (also clears any existing autosave)
+      </label>
+      <div style="margin:10px 0 2px">
+        <button id="set-clear-data" type="button">Clear local data</button>
+        <span class="form-help" style="margin-left:8px">Wipes the autosaved diagram and local preferences from this machine.</span>
+      </div>
+
       <div class="modal-actions">
         <button data-close>Cancel</button>
         <button class="primary" id="set-save">Save</button>
@@ -5756,6 +5968,28 @@ async function showSettings() {
     if (e.target === overlay || e.target.hasAttribute('data-close')) overlay.remove();
   });
   document.body.appendChild(overlay);
+
+  // --- Local data & privacy controls (apply immediately) ---
+  const autosaveCb = overlay.querySelector('#set-autosave-enabled');
+  const privateCb  = overlay.querySelector('#set-private-mode');
+  autosaveCb.addEventListener('change', () => {
+    prefs.autosaveEnabled = autosaveCb.checked;
+    savePrefs();
+    // Disabling autosave stops future writes; the existing copy is left until
+    // the user clears it or enables Private Mode (a deliberate wipe).
+  });
+  privateCb.addEventListener('change', async () => {
+    prefs.privateMode = privateCb.checked;
+    savePrefs();
+    // Entering Private Mode wipes any diagram already persisted to disk.
+    if (prefs.privateMode) await purgeAutosave();
+  });
+  overlay.querySelector('#set-clear-data').addEventListener('click', async () => {
+    await clearLocalData();
+    if (typeof toast === 'function') toast('Local data cleared.', { variant: 'success' });
+    else alert('Local data cleared.');
+  });
+
   overlay.querySelector('#set-save').addEventListener('click', async () => {
     const normalizeSecret = (value) => {
       const v = value.trim();
@@ -5813,6 +6047,12 @@ function showAiAssistant() {
           <button data-sugg="Add 8 traffic signals to the current city distributed along 5th Ave, connected to one roadside cabinet via buried fiber.">Traffic corridor</button>
           <button data-sugg="Create a Starlink-style LEO constellation: 12 LEO satellites evenly spaced, 3 ground stations, all linked with laser ISL.">LEO constellation</button>
           <button data-sugg="Look at the current diagram and tell me three high-impact security improvements.">Security suggestions</button>
+        </div>
+        <div class="ai-status" style="display:block;background:#1e2733;border-color:#2d3a4a;color:#9fb0c3">
+          <b>Heads up — this sends data online.</b> When you press Send, GreyNet shares your prompt plus a
+          <b>minimal summary</b> of the current diagram (site &amp; city <i>names</i>, the active IDs, and object
+          <i>counts</i>) with ${provider === 'anthropic' ? 'Anthropic' : 'OpenAI'}. Device IPs, MAC addresses,
+          addresses, and notes are <b>not</b> sent. Avoid this if your site names themselves are sensitive.
         </div>
         <div id="ai-status" class="ai-status" style="display:none"></div>
       </div>
@@ -5913,7 +6153,12 @@ CONVENTIONS:
 async function callAi(userPrompt) {
   const provider = state.aiProvider;
   if (!state.hasAiKeys[provider]) throw new Error('No API key configured for ' + provider);
-  // Provide current state as context to the model
+  // MINIMAL CONTEXT (privacy): the model only needs enough to reference and
+  // extend the existing design. We send site/city *names* + IDs (so it can
+  // target them) and object *counts* — and deliberately NOT device IPs, MAC
+  // addresses, CIDRs, site addresses, notes, or other props. The AI modal
+  // shows the user exactly this before they press Send. Keep this list tight:
+  // anything added here is sent to the third-party provider.
   const ctx = {
     sites: state.sites.map(s => ({id: s.id, name: s.name, type: s.type})),
     cities: state.cities.map(c => ({id: c.id, name: c.name})),
@@ -7402,13 +7647,16 @@ function renderDeepSpace() {
   // Real one-way light delay can be tens of minutes; we cap visible animation to 14s.
   const visDurS = Math.max(1.5, Math.min(14, lb.lightS / 60 * 6));
   const packet = svgEl('circle', { class: 'ds-packet', cx: sx, cy: sy, r: 2.4 });
-  const animMo = svgEl('animateMotion', {
-    dur: `${visDurS}s`,
-    repeatCount: 'indefinite',
-    rotate: 'auto',
-    path: linkPath,
-  });
-  packet.appendChild(animMo);
+  // Under reduced motion the packet stays at the source; the one-way light
+  // delay is still conveyed by the readout text below (motion is decorative).
+  if (!prefersReducedMotion()) {
+    packet.appendChild(svgEl('animateMotion', {
+      dur: `${visDurS}s`,
+      repeatCount: 'indefinite',
+      rotate: 'auto',
+      path: linkPath,
+    }));
+  }
   linkLayer.appendChild(packet);
 
   // Distance + delay readout near the midpoint of the link.
@@ -7718,7 +7966,8 @@ async function init() {
   await loadSettings();
   applyKeyVisibility();
   renderPalette();
-  const restored = tryRestoreAutosave();
+  await initAutosaveBackend();
+  const restored = await restoreAutosave();
   // First-run ships EMPTY so the user actually experiences the section gating
   // and the walkthrough. The "Load demo" button (see renderEmptyState) lets
   // them populate the rich seedExample at any time.
@@ -7754,6 +8003,13 @@ async function init() {
   if (state.viewMode === 'space') startOrbitAnimation();
   // Wait one frame so canvas has its final size, then fit if no saved viewport
   if (!restored) requestAnimationFrame(fitView);
+  // Tell the user if a corrupt autosave was detected and reset on this boot.
+  // The app already started cleanly (bad data can't brick startup); this just
+  // explains why their previous session isn't here.
+  if (_autosaveRecovered && typeof toast === 'function') {
+    toast('Your last autosave was unreadable and has been reset — previous work could not be recovered.',
+      { variant: 'warn', ttlMs: 9000 });
+  }
 }
 
 function seedExample() {

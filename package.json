@@ -7,11 +7,13 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron .",
-    "security:audit": "npm audit && node scripts/security-audit.js",
+    "security:audit": "npm audit --audit-level=high && node scripts/security-audit.js",
     "check": "node scripts/syntax-check.js",
+    "sbom": "npm sbom --sbom-format cyclonedx > sbom.cdx.json",
     "build": "electron-builder --win --x64 --publish=never",
     "build:portable": "electron-builder --win portable --x64 --publish=never",
     "build:installer": "electron-builder --win nsis --x64 --publish=never",
+    "dist:checksums": "node scripts/gen-checksums.js",
     "test": "playwright test",
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui"
@@ -66,7 +68,8 @@
             "x64"
           ]
         }
-      ]
+      ],
+      "publisherName": "GreyNOC"
     },
     "portable": {
       "artifactName": "GreyNet-${version}-portable.exe"
