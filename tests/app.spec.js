@@ -70,6 +70,45 @@ test.describe('GreyNet — boot + view buttons', () => {
     }
   });
 
+  test('world map city overlay keeps Los Angeles in Southern California', async ({ page }) => {
+    await freshLoad(page);
+    const la = await page.evaluate(() => {
+      const misspelled = MAJOR_CITIES.filter(c => /angelus/i.test(c.name)).map(c => c.name);
+      const city = MAJOR_CITIES.find(c => c.name === 'Los Angeles');
+      document.getElementById('live-layer').innerHTML = '';
+      buildLiveLayer();
+      const dot = document.querySelector('#cities-group [data-city-name="Los Angeles"]');
+      return {
+        misspelled,
+        city,
+        dot: dot ? {
+          cx: Number(dot.getAttribute('cx')),
+          cy: Number(dot.getAttribute('cy')),
+          country: dot.getAttribute('data-city-country'),
+          title: dot.querySelector('title')?.textContent || '',
+        } : null,
+      };
+    });
+
+    expect(la.misspelled).toEqual([]);
+    expect(la.city).toMatchObject({
+      name: 'Los Angeles',
+      country: 'United States',
+      lat: 34.05,
+      lng: -118.24,
+    });
+    expect(la.city.lat).toBeGreaterThan(33);
+    expect(la.city.lat).toBeLessThan(35);
+    expect(la.city.lng).toBeGreaterThan(-119);
+    expect(la.city.lng).toBeLessThan(-117);
+    expect(la.dot).toMatchObject({
+      country: 'United States',
+      title: 'Los Angeles, United States',
+    });
+    expect(la.dot.cx).toBeCloseTo(617.6, 1);
+    expect(la.dot.cy).toBeCloseTo(559.5, 1);
+  });
+
   test('walkthrough overlay shows on a true first launch', async ({ page }) => {
     await page.goto('about:blank');
     await page.evaluate(() => { try { localStorage.removeItem('greynet:autosave:v1'); } catch (_) {} });
