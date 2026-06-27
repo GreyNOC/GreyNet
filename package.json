@@ -69,7 +69,9 @@
           ]
         }
       ],
-      "publisherName": "GreyNOC"
+      "signtoolOptions": {
+        "publisherName": "GreyNOC"
+      }
     },
     "portable": {
       "artifactName": "GreyNet-${version}-portable.exe"
