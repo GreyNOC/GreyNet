@@ -1470,13 +1470,20 @@ function buildLiveLayer() {
   // City lights
   const cityGroup = svgEl('g', { id: 'cities-group' });
   for (let i = 0; i < MAJOR_CITIES.length; i++) {
-    const [name, lat, lng, big] = MAJOR_CITIES[i];
+    const { name, lat, lng, country, big } = MAJOR_CITIES[i];
     const p = latLngToWorld(lat, lng);
     const r = big ? 8 : 5;
     const dot = svgEl('circle', {
       class: 'city-light' + (big ? ' big' : ''),
       cx: p.x, cy: p.y, r,
+      'data-city-name': name,
+      'data-city-country': country || '',
+      'data-city-lat': lat,
+      'data-city-lng': lng,
     });
+    const title = svgEl('title');
+    title.textContent = country ? `${name}, ${country}` : name;
+    dot.appendChild(title);
     // stagger pulses so they don't sync
     dot.style.animationDelay = ((i * 0.27) % 4).toFixed(2) + 's';
     cityGroup.appendChild(dot);

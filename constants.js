@@ -243,7 +243,7 @@ function worldToLatLng(x, y) {
 }
 
 // Major global cities — used as city lights on the night map
-const MAJOR_CITIES = [
+const MAJOR_CITY_ROWS = [
   // Americas
   ['New York',     40.71,  -74.00, true ],
   ['Washington',   38.91,  -77.04, false],
@@ -302,6 +302,69 @@ const MAJOR_CITIES = [
   ['Melbourne',   -37.81,  144.96, false],
   ['Auckland',    -36.85,  174.76, false],
 ];
+
+const MAJOR_CITY_COUNTRIES = {
+  'New York': 'United States',
+  'Washington': 'United States',
+  'Boston': 'United States',
+  'Toronto': 'Canada',
+  'Chicago': 'United States',
+  'Los Angeles': 'United States',
+  'San Francisco': 'United States',
+  'Vancouver': 'Canada',
+  'Mexico City': 'Mexico',
+  'BogotÃ¡': 'Colombia',
+  'Lima': 'Peru',
+  'SÃ£o Paulo': 'Brazil',
+  'Rio de Janeiro': 'Brazil',
+  'Buenos Aires': 'Argentina',
+  'London': 'United Kingdom',
+  'Paris': 'France',
+  'Madrid': 'Spain',
+  'Lisbon': 'Portugal',
+  'Rome': 'Italy',
+  'Berlin': 'Germany',
+  'Amsterdam': 'Netherlands',
+  'Stockholm': 'Sweden',
+  'Warsaw': 'Poland',
+  'Moscow': 'Russia',
+  'Istanbul': 'Turkey',
+  'Cairo': 'Egypt',
+  'Lagos': 'Nigeria',
+  'Nairobi': 'Kenya',
+  'Johannesburg': 'South Africa',
+  'Cape Town': 'South Africa',
+  'Dubai': 'United Arab Emirates',
+  'Riyadh': 'Saudi Arabia',
+  'Tehran': 'Iran',
+  'Karachi': 'Pakistan',
+  'Mumbai': 'India',
+  'Delhi': 'India',
+  'Bengaluru': 'India',
+  'Dhaka': 'Bangladesh',
+  'Bangkok': 'Thailand',
+  'Singapore': 'Singapore',
+  'Jakarta': 'Indonesia',
+  'Manila': 'Philippines',
+  'Hong Kong': 'Hong Kong',
+  'Taipei': 'Taiwan',
+  'Shanghai': 'China',
+  'Beijing': 'China',
+  'Seoul': 'South Korea',
+  'Tokyo': 'Japan',
+  'Osaka': 'Japan',
+  'Sydney': 'Australia',
+  'Melbourne': 'Australia',
+  'Auckland': 'New Zealand',
+};
+
+const MAJOR_CITIES = MAJOR_CITY_ROWS.map(([name, lat, lng, big]) => ({
+  name,
+  lat,
+  lng,
+  big,
+  country: MAJOR_CITY_COUNTRIES[name] || '',
+}));
 
 // Major airline routes — animated planes follow these curves
 const FLIGHT_ROUTES = [
