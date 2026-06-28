@@ -101,8 +101,9 @@
     --glow-ok:     0 0 10px rgba(94,217,154,0.48);
     --glow-warn:   0 0 10px rgba(240,166,74,0.45);
 
-    /* ---- FOCUS RING: accessible, accent-tinted -- not just a border swap. */
-    --focus-ring: 0 0 0 1px var(--accent), 0 0 0 4px rgba(92,194,255,0.22);
+    /* ---- FOCUS RING: accessible, accent-tinted -- derives from the active
+            layer accent so it reads against the deepspace violet too. */
+    --focus-ring: 0 0 0 1px var(--accent), 0 0 0 4px color-mix(in srgb, var(--accent) 30%, transparent);
 
     /* ---- MOTION: fast, professional, settling -- never bouncy. */
     --ease-out:    cubic-bezier(0.22, 1, 0.36, 1);
@@ -734,14 +735,14 @@
   .space-bg { fill: url(#space-bg-gradient); }
   .space-star { fill: #fff; }
   .space-star.near { filter: url(#star-glow); }
-  .space-grid-line { stroke: rgba(95,179,255,0.08); stroke-width: 1; stroke-dasharray: 2 18; pointer-events: none; }
+  .space-grid-line { stroke: rgba(95,179,255,0.12); stroke-width: 1; stroke-dasharray: 2 18; pointer-events: none; }
   .earth-body { fill: url(#earth-gradient); stroke: rgba(133,227,255,0.55); stroke-width: 2; }
   .earth-night { fill: url(#earth-night-gradient); opacity: 0.62; pointer-events: none; }
   .earth-limb { fill: none; stroke: rgba(214,221,230,0.18); stroke-width: 1.2; pointer-events: none; }
   .earth-glow { fill: none; stroke: rgba(95,179,255,0.20); stroke-width: 4; filter: url(#soft-glow); }
   .earth-atmosphere { fill: none; stroke: rgba(133,227,255,0.10); stroke-width: 10; filter: url(#soft-glow); pointer-events: none; }
   .earth-land { fill: rgba(188,213,238,0.34); stroke: rgba(188,213,238,0.22); stroke-width: 1; }
-  .orbit-band { fill: none; stroke-width: 28; opacity: 0.055; pointer-events: none; }
+  .orbit-band { fill: none; stroke-width: 28; opacity: 0.12; pointer-events: none; }
   .orbit-plane { fill: none; stroke: rgba(133,227,255,0.1); stroke-width: 1; stroke-dasharray: 10 12; pointer-events: none; }
   .orbit-ring { fill: none; stroke-dasharray: 6 8; }
   .orbit-ring.leo  { stroke: rgba(111,207,151,0.45); }
@@ -769,14 +770,16 @@
   .space-asset .sa-label { fill: var(--text); font-size: 11px; font-weight: 500;
     text-anchor: middle; pointer-events: none; user-select: none;
     paint-order: stroke; stroke: var(--bg-0); stroke-width: 3; }
-  .space-asset .sa-type { fill: var(--text-faint); font-size: 9px;
+  .space-asset .sa-type { fill: var(--text-dim); font-size: 9.5px;
     text-anchor: middle; pointer-events: none; user-select: none;
-    text-transform: uppercase; letter-spacing: 1px;
+    text-transform: uppercase; letter-spacing: 0.6px;
     paint-order: stroke; stroke: var(--bg-0); stroke-width: 2.5; }
   .space-asset .sa-alt { fill: rgba(214,221,230,0.72); font-size: 9px;
     text-anchor: middle; pointer-events: none; user-select: none;
     paint-order: stroke; stroke: var(--bg-0); stroke-width: 2.5; }
-  .space-asset .sa-stem { stroke: rgba(214,221,230,0.18); stroke-width: 1; stroke-dasharray: 2 4; pointer-events: none; }
+  .space-asset .sa-stem { stroke: rgba(214,221,230,0.30); stroke-width: 1; stroke-dasharray: 2 4; pointer-events: none; }
+  .space-asset:hover .sa-bg { stroke-width: 3; filter: drop-shadow(0 0 4px var(--accent)); }
+  .space-asset:hover .sa-halo { opacity: 0.3; }
   .coverage-cone { fill: rgba(111,207,151,0.07); stroke: rgba(111,207,151,0.22);
     stroke-width: 1; stroke-dasharray: 4 5; pointer-events: none; }
   .space-link-hit { stroke: transparent; stroke-width: 10; fill: none; cursor: pointer; }
@@ -839,8 +842,9 @@
   #canvas.deepspace-mode #spaceassets-layer { display: none; }
   #canvas:not(.deepspace-mode) #deepspace-layer,
   #canvas:not(.deepspace-mode) #deepspace-link-layer { display: none; }
-  body.deepspace-mode .palette { display: none; }
-  body.deepspace-mode #app { grid-template-columns: 0 1fr 380px; }
+  /* Deep Space keeps a (narrow) palette so the Deep-Space Units the walkthrough
+     asks you to place are actually reachable; the studio takes the right rail. */
+  body.deepspace-mode #app { grid-template-columns: 200px 1fr 380px; }
 
   .ds-bg { fill: url(#space-bg-gradient); }
   .ds-sun-corona { fill: url(#sun-corona); pointer-events: none; }
@@ -848,7 +852,7 @@
     filter: url(#soft-glow); }
   .ds-orbit { fill: none; stroke: rgba(133,180,235,0.16); stroke-width: 0.8;
     stroke-dasharray: 4 8; pointer-events: none; }
-  .ds-orbit-label { fill: rgba(140,170,200,0.50); font-size: 9px;
+  .ds-orbit-label { fill: rgba(150,180,212,0.72); font-size: 9.5px;
     font-family: "SF Mono", Menlo, monospace; pointer-events: none; }
   .ds-planet { cursor: pointer; }
   .ds-planet-body { stroke: rgba(255,255,255,0.18); stroke-width: 0.6; filter: url(#planet-shade); }
@@ -857,10 +861,10 @@
   .ds-planet .ds-planet-label { fill: var(--text); font-size: 11px; font-weight: 600;
     text-anchor: middle; pointer-events: none; user-select: none;
     paint-order: stroke; stroke: var(--bg-0); stroke-width: 3.5; }
-  .ds-planet .ds-planet-meta { fill: var(--text-faint); font-size: 8.5px;
+  .ds-planet .ds-planet-meta { fill: var(--text-dim); font-size: 10px;
     text-anchor: middle; pointer-events: none; user-select: none;
     font-family: "SF Mono", Menlo, monospace;
-    paint-order: stroke; stroke: var(--bg-0); stroke-width: 2.5; }
+    paint-order: stroke; stroke: var(--bg-0); stroke-width: 3; }
   .ds-planet:hover .ds-planet-body { stroke: var(--accent); stroke-width: 1.8; }
 
   .ds-source { cursor: pointer; }
@@ -887,7 +891,7 @@
 
   .ds-readout-text { fill: var(--text); font-family: "SF Mono", Menlo, monospace;
     font-size: 11px; pointer-events: none; }
-  .ds-readout-dim { fill: var(--text-faint); font-size: 9.5px;
+  .ds-readout-dim { fill: var(--text-dim); font-size: 10.5px;
     font-family: "SF Mono", Menlo, monospace; pointer-events: none; }
   .ds-verdict-bg { fill: var(--bg-1); stroke-width: 1.5; }
 
@@ -929,7 +933,7 @@
   .lbs-readout .v.good { color: var(--ok); }
   .lbs-readout .v.warn { color: var(--warn); }
   .lbs-readout .v.bad  { color: var(--err); }
-  .lbs-readout .sub { color: var(--text-faint); font-size: 9.5px; }
+  .lbs-readout .sub { color: var(--text-dim); font-size: 10px; }
 
   /* Waterfall: dB-budget bars */
   .lbs-waterfall { margin-top: 6px; }
@@ -949,13 +953,52 @@
   .lbs-presets { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; }
   .lbs-presets button { background: var(--bg-2); border: 1px solid var(--border);
     color: var(--text-dim); padding: 4px 9px; border-radius: 11px;
-    font-size: 10.5px; cursor: pointer; }
+    font-size: 10.5px; cursor: pointer;
+    transition: border-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out),
+                background var(--dur-1) var(--ease-out); }
   .lbs-presets button:hover { border-color: var(--accent); color: var(--accent); }
+  .lbs-presets button.active { border-color: var(--accent); color: var(--bg-0);
+    background: var(--accent); font-weight: 600; }
+
+  /* Reset / Copy action row + Epoch "Now" toggle */
+  .lbs-actions { display: flex; gap: 6px; margin-top: 8px; }
+  .lbs-actions button, .lbs-now { background: var(--bg-2); border: 1px solid var(--border);
+    color: var(--text-dim); padding: 4px 10px; border-radius: var(--radius-1);
+    font-size: 10.5px; cursor: pointer;
+    transition: border-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out); }
+  .lbs-actions button:hover, .lbs-now:hover { border-color: var(--accent); color: var(--accent); }
+  .lbs-now.active { border-color: var(--ok); color: var(--ok); }
+  .lbs-row input[type="date"] { background: var(--bg-2); border: 1px solid var(--border);
+    color: var(--text); font-size: 11px; padding: 2px 6px; border-radius: 3px; flex: 2;
+    color-scheme: dark; }
 
   .lbs-explain { font-size: 10.5px; color: var(--text-dim); line-height: 1.45;
     padding: 8px 12px; background: var(--bg-2); border-left: 3px solid var(--border-2);
     margin-top: 6px; border-radius: 2px; }
   .lbs-explain b { color: var(--text-dim); }
+
+  /* === TOOLBAR GATING PER VIEW ===
+     Grid + Snap are meaningless once the schematic grid is hidden (space modes);
+     Live (city-lights / planes / sats) is a Planet-only overlay. Hide the inert
+     controls rather than leaving them lit and confusing. */
+  body.space-mode #grid-btn, body.space-mode #snap-btn,
+  body.deepspace-mode #grid-btn, body.deepspace-mode #snap-btn { display: none; }
+  body:not(.world-mode) #live-toggle-btn { display: none; }
+
+  /* === ORBIT SHELL LEGEND (HTML overlay; ignores SVG zoom) === */
+  .orbit-legend { display: none; }
+  body.space-mode .orbit-legend {
+    position: absolute; left: var(--space-4); bottom: var(--space-4); z-index: 6;
+    display: flex; flex-direction: column; gap: 4px;
+    background: var(--glass-float);
+    -webkit-backdrop-filter: blur(var(--glass-blur-sm)); backdrop-filter: blur(var(--glass-blur-sm));
+    border: 1px solid var(--border); border-radius: var(--radius-2);
+    padding: 9px 11px; font-size: 10.5px; color: var(--text-dim);
+    pointer-events: none; box-shadow: var(--elev-2); }
+  .orbit-legend .ol-title { color: var(--text-faint); text-transform: uppercase;
+    letter-spacing: 1px; font-size: 9px; margin-bottom: 2px; }
+  .orbit-legend span { display: flex; align-items: center; gap: 7px; }
+  .orbit-legend i { width: 16px; height: 3px; border-radius: 2px; display: inline-block; flex: none; }
 
   /* === SETTINGS / AI MODALS === */
   .form-grid { display: grid; gap: 10px; }

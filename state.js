@@ -80,6 +80,8 @@ const state = {
     atmLossDb: 0.3,             // small atmospheric loss
     pointingLossDb: 0.5,
     epochMs: Date.now(),        // for ephemeris (refreshed on render)
+    epochOverrideMs: null,      // when set, ephemeris is frozen at this instant
+    activePresetId: null,       // highlighted scenario preset, if any
   },
 };
 
@@ -97,7 +99,7 @@ function snapshot() {
     spaceAssets: state.spaceAssets, spaceLinks: state.spaceLinks,
     planetInfra: state.planetInfra,
     deepSpaceUnits: state.deepSpaceUnits, deepSpaceLinks: state.deepSpaceLinks,
-    progression: state.progression,
+    progression: state.progression, comms: state.comms,
     activeSiteId: state.activeSiteId, activeCityId: state.activeCityId, viewMode: state.viewMode,
   });
 }
@@ -109,6 +111,7 @@ function restoreSnapshot(s) {
   state.spaceAssets = d.spaceAssets || []; state.spaceLinks = d.spaceLinks || [];
   state.planetInfra = d.planetInfra || [];
   state.deepSpaceUnits = d.deepSpaceUnits || []; state.deepSpaceLinks = d.deepSpaceLinks || [];
+  if (d.comms) state.comms = d.comms;
   if (d.progression) state.progression = d.progression;
   state.activeSiteId = d.activeSiteId || state.activeSiteId;
   state.activeCityId = d.activeCityId || state.activeCityId;

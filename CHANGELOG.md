@@ -1,5 +1,49 @@
 # GreyNet — Changelog
 
+## 0.7.0 — Space environments QA/QC + redesign
+
+A focused UX/UE/design pass over the two flagship space views (Orbit and Deep
+Space), driven by a multi-dimension audit. No data-format or security changes.
+
+Deep Space — Link Budget Studio:
+
+- **Smooth slider interaction.** Slider `input` no longer rebuilds the whole
+  panel each tick — it patches the readout/waterfall/canvas in place via one
+  rAF-coalesced update. Continuous drag, keyboard focus, and the panel scroll
+  position now survive editing, and the light-speed packet no longer restarts on
+  every change. The Deep-Space Mesh graph is no longer recomputed per tick.
+- **Accessibility.** Slider labels are associated to their inputs (`for`/`id`);
+  sliders carry `aria-label` + live `aria-valuetext`; the readout block is an
+  `aria-live` region; planets are keyboard-operable (`tabindex`/role + Enter/Space)
+  and the scene exposes a `role="img"` summary.
+- **New controls.** Epoch date scrubber with a **Now** (live) toggle and a live
+  indicator; **Reset** (restore station defaults) and **Copy result** (link
+  budget to clipboard); the active scenario preset is highlighted and clears when
+  you diverge.
+- **Content + correctness.** The "New Horizons-class to Pluto" preset now targets
+  an actual Pluto (~39.5 AU) instead of Neptune; stations carry a default band so
+  their notes match; the dB waterfall is normalized (no longer pegs every bar at
+  100%) and loss bars point the right way; a **G/T** row, per-row tooltips, an SI
+  received-power readout, a day/year delay tier, nearest-band fallback, and a
+  scale caption were added; verdict wording is consistent ("Link OK / Marginal /
+  No link" → "Limiting factor"). Studio edits are undoable and the Deep-Space
+  palette is reachable again so mesh units can be placed.
+
+Orbit:
+
+- First-entry **empty-state** guidance and an orbital-shell **legend**; hover
+  affordance on assets; faint rings/labels/captions lifted for legibility; the
+  "real-ish" scale note replaced with precise wording; orbit rotation pauses when
+  the tab is hidden.
+
+Shell (both views):
+
+- **Fit** and the `F` key are now mode-aware (frame Orbit / Deep Space, not the
+  hidden local devices); wheel/zoom and Fit share one lower bound (0.1); Grid,
+  Snap and the Planet-only **Live** toggle are hidden where they do nothing; the
+  site/city switcher is hidden at space scales; the focus ring derives from the
+  active layer accent.
+
 ## 0.6.1 — Security hardening, reliability + visual redesign
 
 Security hardening (no user-facing behavior change):

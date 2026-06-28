@@ -501,7 +501,7 @@ function renderSpaceMap() {
   frag.appendChild(orbitsFront);
   // Scale label (footer)
   const scale = svgEl('text', { class: 'space-scale-label', x: -1030, y: 1040 });
-  scale.textContent = 'Earth-centered orbital model · radius compressed for legibility · inclinations and rotation are real-ish';
+  scale.textContent = 'Earth-centered model · orbital radii compressed for legibility · axial tilt and rotation to scale, altitudes are not';
   frag.appendChild(scale);
   dom.spacemapLayer.appendChild(frag);
   dom.spacemapLayer.dataset.built = '1';
@@ -1165,8 +1165,8 @@ function renderSpaceLinks() {
     g.appendChild(svgEl('line', pulseAttrs));
     if (sl.label || selected) {
       const t = svgEl('text', { class: 'space-link-label', x: (pa.x+pb.x)/2, y: (pa.y+pb.y)/2 - 6 });
-      const metricLabel = `${Math.round(metrics.distanceKm).toLocaleString()} km - ${metrics.latencyMs.toFixed(1)} ms`;
-      t.textContent = sl.label ? `${sl.label} - ${metricLabel}` : metricLabel;
+      const metricLabel = `${Math.round(metrics.distanceKm).toLocaleString()} km · ${metrics.latencyMs.toFixed(1)} ms`;
+      t.textContent = sl.label ? `${sl.label} · ${metricLabel}` : metricLabel;
       g.appendChild(t);
     }
     dom.spacelinksLayer.appendChild(g);
@@ -1312,7 +1312,21 @@ function endpointById(id) { return state.endpoints.find(e => e.id === id); }
 function cityLinkById(id) { return state.cityLinks.find(c => c.id === id); }
 
 function renderEmptyState() {
-  // Only relevant in local view
+  // Orbit first-entry guidance: a fresh orbital layer is just a rotating Earth,
+  // so teach the core gesture instead of showing a blank starfield.
+  if (state.viewMode === 'space') {
+    if ((state.spaceAssets || []).length > 0) { dom.emptyState.classList.add('hidden'); return; }
+    dom.emptyStateTitle.textContent = 'Your orbit is empty';
+    dom.emptyStateMsg.innerHTML = 'Drag a <b>ground station</b> and a <b>satellite</b> (or relay) from the left palette, '
+      + 'then press <kbd>C</kbd> for Connect mode and click both to link them with an uplink.';
+    dom.emptyStateActions.innerHTML = '<button data-go-walkthrough>Show me how</button>';
+    dom.emptyStateActions.querySelector('[data-go-walkthrough]')?.addEventListener('click', () => {
+      if (typeof openWalkthrough === 'function') openWalkthrough(4); // Orbit step
+    });
+    dom.emptyState.classList.remove('hidden');
+    return;
+  }
+  // Only relevant in local view (other views render their own content)
   if (state.viewMode !== 'local') {
     dom.emptyState.classList.add('hidden');
     return;
@@ -2005,6 +2019,12 @@ function renderProperties() {
   if (ids.length === 0) {
     if (state.viewMode === 'deepspace') {
       renderLinkBudgetStudio();
+      dom.prActions.style.display = 'none';
+      return;
+    }
+    if (state.viewMode === 'space') {
+      dom.prType.textContent = 'Orbit';
+      dom.prBody.innerHTML = `<div class="pr-empty">No asset selected.<br><br>Pick a unit type in the left palette, then click an orbital ring to place it. Select any satellite or link to see its coverage, bandwidth and power here.</div>`;
       dom.prActions.style.display = 'none';
       return;
     }
@@ -3199,7 +3219,7 @@ dom.svg.addEventListener('mouseup', (e) => {
 dom.svg.addEventListener('wheel', (e) => {
   e.preventDefault();
   const factor = e.deltaY < 0 ? 1.15 : 1 / 1.15;
-  const newZoom = clamp(state.view.zoom * factor, 0.2, 4);
+  const newZoom = clamp(state.view.zoom * factor, 0.1, 4);
   const rect = dom.svg.getBoundingClientRect();
   const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
   const wx = (cx - state.view.pan.x) / state.view.zoom;
@@ -4041,6 +4061,9 @@ function updateSiteBar() {
   const mode = state.viewMode;
   // Show city-only controls only in city mode
   dom.cityBarControls.style.display = (mode === 'city') ? 'flex' : 'none';
+  // The site/city switcher (▾) only lists local sites + cities, which is
+  // meaningless at the Orbit / Deep Space scales — hide it there.
+  if (dom.sbSwitcher) dom.sbSwitcher.style.display = (mode === 'space' || mode === 'deepspace') ? 'none' : '';
 
   if (mode === 'world') {
     dom.sbIcon.textContent = 'PLANET';
@@ -4076,7 +4099,7 @@ function updateSiteBar() {
     const tgt = DS_TARGETS[state.comms.targetId];
     dom.sbContextLabel.textContent = 'Link budget';
     dom.sbActiveSiteName.textContent = `${src.label} → ${tgt ? tgt.label : 'custom'}`;
-    dom.sbModeHint.textContent = 'Click a planet to switch target. Drag sliders on the right to tune the link.';
+    dom.sbModeHint.textContent = 'Click a planet to retarget · tune the link on the right · drag a Deep-Space unit from the left to build a mesh.';
   } else {
     dom.sbIcon.textContent = 'SITE';
     const site = siteById(state.activeSiteId);
@@ -4345,7 +4368,7 @@ function zoomBy(factor) {
   const cx = rect.width / 2, cy = rect.height / 2;
   const wx = (cx - state.view.pan.x) / state.view.zoom;
   const wy = (cy - state.view.pan.y) / state.view.zoom;
-  state.view.zoom = clamp(state.view.zoom * factor, 0.2, 4);
+  state.view.zoom = clamp(state.view.zoom * factor, 0.1, 4);
   state.view.pan.x = cx - wx * state.view.zoom;
   state.view.pan.y = cy - wy * state.view.zoom;
   updateWorldTransform();
@@ -4370,11 +4393,24 @@ function fitView() {
   if (w <= 0 || h <= 0) return resetView();
   const rect = dom.svg.getBoundingClientRect();
   const pad = 60;
-  const zoom = clamp(Math.min((rect.width - pad*2) / w, (rect.height - pad*2) / h), 0.2, 4);
+  const zoom = clamp(Math.min((rect.width - pad*2) / w, (rect.height - pad*2) / h), 0.1, 4);
   state.view.zoom = zoom;
   state.view.pan.x = (rect.width  - w * zoom) / 2 - minX * zoom;
   state.view.pan.y = (rect.height - h * zoom) / 2 - minY * zoom;
   updateWorldTransform();
+}
+
+// "Fit" must frame whatever the user is actually looking at — each scale has its
+// own content bounds, so dispatch on the active view rather than always framing
+// the (hidden) local-network devices.
+function fitCurrentView() {
+  switch (state.viewMode) {
+    case 'world':     return fitWorld();
+    case 'city':      return fitCity();
+    case 'space':     return fitSpace();
+    case 'deepspace': return fitDeepSpace();
+    default:          return fitView();
+  }
 }
 
 
@@ -4865,19 +4901,24 @@ function cleanComms(c) {
   const validSources = (typeof DS_SOURCES === 'object' && DS_SOURCES) ? DS_SOURCES : null;
   const validTargets = (typeof DS_TARGETS === 'object' && DS_TARGETS) ? DS_TARGETS : null;
   const validModFec  = (typeof DS_MODFEC  === 'object' && DS_MODFEC)  ? DS_MODFEC  : null;
+  // Bounds mirror the studio slider min/max so a restored value always maps to a
+  // representable thumb position (no value/thumb desync until first touch).
+  const validPreset = (typeof DS_PRESETS === 'object' && DS_PRESETS) ? DS_PRESETS : null;
   return {
     sourceId:        validSources ? cleanEnum(c.sourceId, validSources, 'dsn70')        : cleanString(c.sourceId, 64),
     targetId:        validTargets ? cleanEnum(c.targetId, validTargets, 'mars')         : cleanString(c.targetId, 64),
-    customTargetKm:  clampNum(c.customTargetKm, 1000, 1e15, 225e6),
-    txPowerW:        clampNum(c.txPowerW, 0.001, 1e8, 20000),
-    txGainDbi:       clampNum(c.txGainDbi, 0, 120, 47),
-    rxGainDbi:       clampNum(c.rxGainDbi, 0, 120, 73),
-    freqGHz:         clampNum(c.freqGHz, 0.01, 1000, 8.4),
-    dataBps:         clampNum(c.dataBps, 1, 1e12, 6_000_000),
-    noiseTempK:      clampNum(c.noiseTempK, 1, 5000, 21),
+    customTargetKm:  clampNum(c.customTargetKm, 1000, 1e13, 225e6),
+    txPowerW:        clampNum(c.txPowerW, 0.1, 1e5, 20000),
+    txGainDbi:       clampNum(c.txGainDbi, 0, 80, 47),
+    rxGainDbi:       clampNum(c.rxGainDbi, 0, 80, 73),
+    freqGHz:         clampNum(c.freqGHz, 0.1, 100, 8.4),
+    dataBps:         clampNum(c.dataBps, 1, 1e9, 6_000_000),
+    noiseTempK:      clampNum(c.noiseTempK, 20, 500, 21),
     modFec:          validModFec  ? cleanEnum(c.modFec, validModFec, 'qpsk_12_ldpc')    : cleanString(c.modFec, 64),
-    atmLossDb:       clampNum(c.atmLossDb, 0, 100, 0.3),
-    pointingLossDb:  clampNum(c.pointingLossDb, 0, 100, 0.5),
+    atmLossDb:       clampNum(c.atmLossDb, 0, 10, 0.3),
+    pointingLossDb:  clampNum(c.pointingLossDb, 0, 5, 0.5),
+    epochOverrideMs: (typeof c.epochOverrideMs === 'number' && isFinite(c.epochOverrideMs)) ? c.epochOverrideMs : null,
+    activePresetId:  (validPreset && c.activePresetId && validPreset[c.activePresetId]) ? c.activePresetId : null,
   };
 }
 
@@ -5720,7 +5761,7 @@ document.addEventListener('keydown', (e) => {
   else if (e.key === '+' || e.key === '=') zoomBy(1.2);
   else if (e.key === '-' || e.key === '_') zoomBy(1/1.2);
   else if (e.key === '0') resetView();
-  else if (e.key === 'f' || e.key === 'F') fitView();
+  else if (e.key === 'f' || e.key === 'F') fitCurrentView();
   else if (e.key === 'w' || e.key === 'W') cycleViewMode();
 });
 
@@ -5757,7 +5798,7 @@ dom.toolbar.addEventListener('click', (e) => {
     case 'zoom-in': zoomBy(1.2); break;
     case 'zoom-out': zoomBy(1/1.2); break;
     case 'zoom-reset': resetView(); break;
-    case 'fit': fitView(); break;
+    case 'fit': fitCurrentView(); break;
     case 'toggle-grid':
       state.showGrid = !state.showGrid;
       updateGridVisibility();
@@ -7296,23 +7337,23 @@ const DS_K_DBW  = -228.6;             // 10·log10(Boltzmann constant) dBW/Hz/K
 // Transmit stations (source endpoints). Defaults reflect real ground/space gear.
 const DS_SOURCES = {
   dsn70:    { label: 'DSN 70m (Goldstone)', host: 'earth', altKm: 0,
-              defaultTxW: 20000, defaultGtDbi: 73, defaultTsK: 21,
+              defaultTxW: 20000, defaultGtDbi: 73, defaultTsK: 21, defaultFreqGHz: 8.4,
               note: 'NASA Deep Space Network 70-meter antenna, X-band.' },
   dsn34:    { label: 'DSN 34m BWG',         host: 'earth', altKm: 0,
-              defaultTxW: 20000, defaultGtDbi: 68, defaultTsK: 25,
+              defaultTxW: 20000, defaultGtDbi: 68, defaultTsK: 25, defaultFreqGHz: 8.4,
               note: 'DSN 34-meter beam-waveguide antenna, X/Ka-band.' },
   estrack:  { label: 'ESA Estrack 35m',     host: 'earth', altKm: 0,
-              defaultTxW: 20000, defaultGtDbi: 68.5, defaultTsK: 28,
+              defaultTxW: 20000, defaultGtDbi: 68.5, defaultTsK: 28, defaultFreqGHz: 8.4,
               note: 'ESA deep-space stations (New Norcia, Cebreros, Malargüe).' },
   starship: { label: 'Starship LEO',        host: 'earth', altKm: 500,
-              defaultTxW: 1000,  defaultGtDbi: 38, defaultTsK: 200,
-              note: 'Hypothetical Starship phased-array, V/Ka-band.' },
+              defaultTxW: 1000,  defaultGtDbi: 38, defaultTsK: 200, defaultFreqGHz: 27.0,
+              note: 'Hypothetical Starship phased-array, Ka-band.' },
   marsrelay:{ label: 'Mars relay orbiter',  host: 'mars',  altKm: 400,
-              defaultTxW: 100,   defaultGtDbi: 47, defaultTsK: 150,
-              note: 'MRO-class 3m HGA on a Mars science orbit.' },
+              defaultTxW: 100,   defaultGtDbi: 47, defaultTsK: 150, defaultFreqGHz: 8.4,
+              note: 'MRO-class 3m HGA on a Mars science orbit, X-band to Earth.' },
   lunargate:{ label: 'Lunar Gateway',       host: 'moon',  altKm: 70000,
-              defaultTxW: 200,   defaultGtDbi: 45, defaultTsK: 200,
-              note: 'NRHO Lunar Gateway X/Ka-band terminal.' },
+              defaultTxW: 200,   defaultGtDbi: 45, defaultTsK: 200, defaultFreqGHz: 26.0,
+              note: 'NRHO Lunar Gateway Ka-band terminal.' },
 };
 
 // Targets — planets, the Moon, and a few notable spacecraft.
@@ -7351,6 +7392,9 @@ const DS_TARGETS = {
   voyager1:{ label: 'Voyager 1', kind: 'spacecraft', parent: 'sun',
              distKm: 2.47e10, color: '#cccccc', radiusVis: 3,
              note: 'Now ~165 AU from the Sun and receding at 17 km/s.' },
+  pluto:   { label: 'Pluto', kind: 'spacecraft', parent: 'sun',
+             distKm: 5.91e9, color: '#caa472', radiusVis: 3,
+             note: 'Dwarf planet at ~39.5 AU mean heliocentric distance (New Horizons flyby target).' },
   custom:  { label: 'Custom range', kind: 'custom',
              color: '#d6dde6', radiusVis: 5,
              note: 'Type any distance in km to model arbitrary scenarios.' },
@@ -7370,7 +7414,14 @@ const DS_BANDS = [
 ];
 function dsBandFor(fGhz) {
   for (const b of DS_BANDS) if (fGhz >= b.lo && fGhz <= b.hi) return b.name;
-  return '—';
+  // In a gap between named allocations (e.g. 18–26.5 GHz) — report the nearest
+  // band with a "~" rather than a bare em-dash, which read as missing data.
+  let best = null, bestD = Infinity;
+  for (const b of DS_BANDS) {
+    const d = fGhz < b.lo ? b.lo - fGhz : fGhz - b.hi;
+    if (d < bestD) { bestD = d; best = b.name; }
+  }
+  return best ? '~' + best : '—';
 }
 
 // Modulation + FEC presets. Required Eb/N0 values are typical operating points
@@ -7431,9 +7482,9 @@ const DS_PRESETS = {
     }),
   },
   pluto: {
-    label: 'New Horizons-class to Pluto orbit',
+    label: 'New Horizons-class to Pluto',
     apply: c => Object.assign(c, {
-      sourceId: 'dsn70', targetId: 'neptune',  // neptune ≈ 30 AU (Pluto ~39)
+      sourceId: 'dsn70', targetId: 'pluto',
       txPowerW: 12, txGainDbi: 42, rxGainDbi: 73, freqGHz: 8.4,
       dataBps: 1000, noiseTempK: 25, modFec: 'bpsk_16_turbo',
     }),
@@ -7534,7 +7585,8 @@ function renderDeepSpace() {
   const linkLayer = dom.deepspaceLinkLayer;
   layer.innerHTML = '';
   linkLayer.innerHTML = '';
-  state.comms.epochMs = Date.now();
+  // Live by default; frozen when the user picks a date in the studio.
+  state.comms.epochMs = state.comms.epochOverrideMs || Date.now();
 
   const frag = document.createDocumentFragment();
 
@@ -7578,7 +7630,10 @@ function renderDeepSpace() {
     positions[pid] = { x: px, y: py, R, theta };
 
     const g = svgEl('g', { class: 'ds-planet' + (state.comms.targetId === pid ? ' target' : ''),
-                           'data-target': pid, transform: `translate(${px.toFixed(2)},${py.toFixed(2)})` });
+                           'data-target': pid, tabindex: '0', role: 'button',
+                           'aria-label': `${p.label} — set as link target`,
+                           'aria-pressed': state.comms.targetId === pid ? 'true' : 'false',
+                           transform: `translate(${px.toFixed(2)},${py.toFixed(2)})` });
     g.appendChild(svgEl('circle', { class: 'ds-planet-body', r: p.radiusVis, fill: p.color }));
     const nameY = p.radiusVis + 14;
     const nm = svgEl('text', { class: 'ds-planet-label', y: nameY });
@@ -7590,9 +7645,14 @@ function renderDeepSpace() {
       meta.textContent = `${(d / DS_AU_KM).toFixed(2)} AU · ${(d / 1e6).toFixed(1)}M km`;
       g.appendChild(meta);
     }
-    g.addEventListener('click', () => {
+    const pickTarget = () => {
       state.comms.targetId = pid;
+      state.comms.activePresetId = null;
       renderAll();
+    };
+    g.addEventListener('click', pickTarget);
+    g.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); pickTarget(); }
     });
     frag.appendChild(g);
   }
@@ -7653,7 +7713,7 @@ function renderDeepSpace() {
   // Light-speed packet — duration scaled so a real light-minute = 6 visual seconds.
   // Real one-way light delay can be tens of minutes; we cap visible animation to 14s.
   const visDurS = Math.max(1.5, Math.min(14, lb.lightS / 60 * 6));
-  const packet = svgEl('circle', { class: 'ds-packet', cx: sx, cy: sy, r: 2.4 });
+  const packet = svgEl('circle', { class: 'ds-packet', id: 'ds-packet', cx: sx, cy: sy, r: 2.4 });
   // Under reduced motion the packet stays at the source; the one-way light
   // delay is still conveyed by the readout text below (motion is decorative).
   if (!prefersReducedMotion()) {
@@ -7667,12 +7727,20 @@ function renderDeepSpace() {
   linkLayer.appendChild(packet);
 
   // Distance + delay readout near the midpoint of the link.
-  const txt = svgEl('text', { class: 'ds-readout-text', x: cpx, y: cpy - 6, 'text-anchor': 'middle' });
+  const txt = svgEl('text', { class: 'ds-readout-text', id: 'ds-readout-main', x: cpx, y: cpy - 6, 'text-anchor': 'middle' });
   txt.textContent = `${(lb.distKm / 1e6).toFixed(1)}M km · ${dsFormatDelay(lb.lightS)} one-way`;
   linkLayer.appendChild(txt);
-  const sub = svgEl('text', { class: 'ds-readout-dim', x: cpx, y: cpy + 7, 'text-anchor': 'middle' });
+  const sub = svgEl('text', { class: 'ds-readout-dim', id: 'ds-readout-sub', x: cpx, y: cpy + 7, 'text-anchor': 'middle' });
   sub.textContent = `${lb.bandName}-band · ${state.comms.freqGHz} GHz · ${(state.comms.dataBps / 1e3).toFixed(0)} kbps`;
   linkLayer.appendChild(sub);
+
+  // Scale caption (mirrors the Orbit view's footer note) + a text alternative
+  // for the whole scene so screen readers get a summary.
+  const scaleNote = svgEl('text', { class: 'space-scale-label', x: -1160, y: 1175 });
+  scaleNote.textContent = 'Heliocentric model · orbit radii log-compressed for legibility · planet positions from J2000 mean elements';
+  linkLayer.appendChild(scaleNote);
+  layer.setAttribute('role', 'img');
+  layer.setAttribute('aria-label', dsSceneAriaLabel(lb));
 }
 
 function dsFormatDelay(s) {
@@ -7682,8 +7750,169 @@ function dsFormatDelay(s) {
     const m = Math.floor(s / 60), r = (s - 60 * m).toFixed(0);
     return `${m} min ${r}s`;
   }
-  const h = Math.floor(s / 3600), m = Math.floor((s - 3600 * h) / 60);
-  return `${h}h ${m}m`;
+  if (s < 86400) {
+    const h = Math.floor(s / 3600), m = Math.floor((s - 3600 * h) / 60);
+    return `${h}h ${m}m`;
+  }
+  const d = Math.floor(s / 86400), h = Math.floor((s - 86400 * d) / 3600);
+  if (d < 365) return `${d}d ${h}h`;
+  const y = Math.floor(d / 365), rd = d - y * 365;
+  return `${y}y ${rd}d`;
+}
+
+// Human-friendly received-power magnitude with an SI prefix (deep-space links
+// land in the pico/femto/atto-watt range), falling back to scientific notation.
+function dsFormatWatts(w) {
+  if (!isFinite(w) || w <= 0) return '0 W';
+  const units = [[1, 'W'], [1e-3, 'mW'], [1e-6, 'µW'], [1e-9, 'nW'],
+                 [1e-12, 'pW'], [1e-15, 'fW'], [1e-18, 'aW']];
+  for (const [scale, label] of units) {
+    if (w >= scale) return (w / scale).toFixed(2) + ' ' + label;
+  }
+  return w.toExponential(2) + ' W';
+}
+
+// Verdict (right-panel chip vocabulary) and canvas link-class vocabulary derived
+// from link margin. Single source of truth so chip + canvas + readout agree.
+function dsVerdict(lb) {
+  return lb.margin >= 3 ? { cls: 'ok',   text: 'Link OK' }
+       : lb.margin >= 0 ? { cls: 'warn', text: 'Marginal' }
+       :                  { cls: 'err',  text: 'No link' };
+}
+function dsLinkClass(lb) {
+  return lb.margin >= 3 ? 'ok' : (lb.margin >= 0 ? 'marginal' : 'fail');
+}
+
+// Live-readout rows (no <input> children — safe to re-render in place during a
+// drag). Each key carries a one-line definition as a native tooltip.
+function lbsReadoutHtml(lb, c) {
+  const f  = (v, d = 1) => v.toFixed(d);
+  const sf = (v, d = 1) => (v >= 0 ? '+' : '') + v.toFixed(d);
+  const dBm = lb.prDbW + 30;
+  const prWatts = Math.pow(10, lb.prDbW / 10);
+  const gt = c.rxGainDbi - 10 * Math.log10(Math.max(1, c.noiseTempK)); // G/T, dB/K
+  const ebCls = lb.margin >= 3 ? 'good' : (lb.margin >= 0 ? 'warn' : 'bad');
+  const tip = t => ` title="${escapeHtml(t)}"`;
+  return `
+    <span class="k"${tip('Earth–target range at the current epoch.')}>Distance</span>
+      <span class="v">${f(lb.distKm / 1e6, 1)} M km
+        <span class="sub">${f(lb.distKm / DS_AU_KM, 3)} AU</span></span>
+    <span class="k"${tip('One-way signal travel time at the speed of light.')}>One-way delay</span>
+      <span class="v">${dsFormatDelay(lb.lightS)}
+        <span class="sub">round trip ${dsFormatDelay(lb.lightS * 2)}</span></span>
+    <span class="k"${tip('Free-space path loss = 92.45 + 20·log10(d_km) + 20·log10(f_GHz).')}>FSPL</span>
+      <span class="v">${f(lb.fsplDb, 1)} dB</span>
+    <span class="k"${tip('Power delivered to the receiver after all gains and losses.')}>Received power</span>
+      <span class="v">${f(lb.prDbW, 1)} dBW
+        <span class="sub">${f(dBm, 1)} dBm · ${dsFormatWatts(prWatts)}</span></span>
+    <span class="k"${tip('Receiver figure of merit: RX gain − 10·log10(system noise temp).')}>G/T</span>
+      <span class="v">${sf(gt, 1)} dB/K</span>
+    <span class="k"${tip('Carrier-to-noise-density ratio: Pr − k − 10·log10(Ts).')}>C/N₀</span>
+      <span class="v">${f(lb.cn0, 1)} dB·Hz</span>
+    <span class="k"${tip('Energy-per-bit to noise-density actually achieved.')}>Eb/N₀ achieved</span>
+      <span class="v ${ebCls}">${f(lb.ebN0, 1)} dB</span>
+    <span class="k"${tip('Eb/N₀ the chosen modulation + FEC needs (BER ≈ 1e-6).')}>Eb/N₀ required</span>
+      <span class="v">${f(lb.requiredEbN0, 1)} dB
+        <span class="sub">${escapeHtml(lb.modLabel)}</span></span>
+    <span class="k"${tip('Achieved − required. ≥ +3 dB safe · 0–3 dB marginal · < 0 dB no link.')}>Margin</span>
+      <span class="v ${ebCls}">${sf(lb.margin, 1)} dB</span>
+    <span class="k"${tip('Theoretical error-free bit-rate ceiling at this C/N (Shannon).')}>Shannon bound</span>
+      <span class="v">${lb.shannonBps > 1e6 ? (lb.shannonBps / 1e6).toFixed(1) + ' Mbps' : (lb.shannonBps / 1e3).toFixed(2) + ' kbps'}</span>`;
+}
+
+// dB waterfall, normalized to the largest-magnitude term so every bar is legible
+// (raw FSPL ~280 dB would otherwise peg every other bar at full width).
+function lbsWaterfallHtml(lb, c) {
+  const sf = (v, d = 1) => (v >= 0 ? '+' : '') + v.toFixed(d);
+  const terms = [
+    { name: 'TX power',    db: lb.ptDbW,                           kind: 'note' },
+    { name: '+ TX gain',   db: c.txGainDbi,                        kind: 'gain' },
+    { name: '+ RX gain',   db: c.rxGainDbi,                        kind: 'gain' },
+    { name: '− FSPL',      db: -lb.fsplDb,                         kind: 'loss' },
+    { name: '− atm/point', db: -(c.atmLossDb + c.pointingLossDb),  kind: 'loss' },
+    { name: '= Pr',        db: lb.prDbW,                           kind: 'note' },
+  ];
+  const maxAbs = Math.max(1, ...terms.map(t => Math.abs(t.db)));
+  return terms.map(t => {
+    const widthPct = Math.min(100, 100 * Math.abs(t.db) / maxAbs);
+    const sideStyle = t.db >= 0
+      ? `left:50%;width:${widthPct}%`
+      : `left:auto;right:50%;width:${widthPct}%`;
+    return `<div class="lbs-bar ${t.kind}">
+        <span class="name">${t.name}</span>
+        <div class="track"><div class="fill" style="${sideStyle}"></div></div>
+        <span class="v">${sf(t.db, 1)} dB</span>
+      </div>`;
+  }).join('');
+}
+
+// Patch only the read-only regions of the studio (verdict, readout grid,
+// waterfall, band, limiter). Never touches the slider/select inputs, so a drag
+// in progress is never interrupted.
+function updateLbsReadouts(lb) {
+  const c = state.comms;
+  const v = dsVerdict(lb);
+  const chip = document.getElementById('lbs-verdict');
+  if (chip) { chip.textContent = v.text; chip.className = 'lbs-verdict ' + v.cls; }
+  const band = document.getElementById('lbs-band');
+  if (band) band.textContent = lb.bandName;
+  const ro = document.getElementById('lbs-readout');
+  if (ro) ro.innerHTML = lbsReadoutHtml(lb, c);
+  const wf = document.getElementById('lbs-waterfall');
+  if (wf) wf.innerHTML = lbsWaterfallHtml(lb, c);
+  const lim = document.getElementById('lbs-limiter');
+  if (lim) lim.textContent = lb.limiter;
+  const aria = document.getElementById('deepspace-layer');
+  if (aria) aria.setAttribute('aria-label', dsSceneAriaLabel(lb));
+}
+
+// Patch the on-canvas link without rebuilding the heliocentric scene: update the
+// link colour, the two readout lines, and the light-packet duration in place.
+function paintDeepSpaceLink(lb) {
+  const c = state.comms;
+  const path = document.getElementById('ds-link-path');
+  if (path) path.setAttribute('class', 'ds-link ' + dsLinkClass(lb));
+  const main = document.getElementById('ds-readout-main');
+  if (main) main.textContent = `${(lb.distKm / 1e6).toFixed(1)}M km · ${dsFormatDelay(lb.lightS)} one-way`;
+  const sub = document.getElementById('ds-readout-sub');
+  if (sub) sub.textContent = `${lb.bandName}-band · ${c.freqGHz} GHz · ${(c.dataBps / 1e3).toFixed(0)} kbps`;
+  const anim = document.querySelector('#ds-packet animateMotion');
+  if (anim) anim.setAttribute('dur', `${Math.max(1.5, Math.min(14, lb.lightS / 60 * 6))}s`);
+}
+
+// One concise text alternative for the deep-space SVG scene (screen readers).
+function dsSceneAriaLabel(lb) {
+  const c = state.comms;
+  const src = (typeof DS_SOURCES !== 'undefined' && DS_SOURCES[c.sourceId]) || {};
+  const tgt = (typeof DS_TARGETS !== 'undefined' && DS_TARGETS[c.targetId]) || {};
+  const v = dsVerdict(lb);
+  return `Deep space link: ${src.label || 'source'} to ${tgt.label || 'target'}, ` +
+         `${(lb.distKm / DS_AU_KM).toFixed(2)} AU, ${dsFormatDelay(lb.lightS)} one-way, ` +
+         `margin ${lb.margin >= 0 ? '+' : ''}${lb.margin.toFixed(1)} dB — ${v.text}.`;
+}
+
+// rAF-coalesced live update for the studio: recompute once and patch both the
+// panel readouts and the canvas link. Used by every slider 'input' so a drag
+// costs one cheap repaint per frame instead of a full panel + scene rebuild.
+let _lbsLiveRaf = 0;
+function scheduleLbsLive() {
+  if (_lbsLiveRaf) return;
+  _lbsLiveRaf = requestAnimationFrame(() => {
+    _lbsLiveRaf = 0;
+    const c = state.comms;
+    const lb = dsComputeLinkBudget(c, c.epochMs || Date.now());
+    updateLbsReadouts(lb);
+    paintDeepSpaceLink(lb);
+  });
+}
+
+// Once the user diverges from a preset, drop the preset's "active" highlight.
+function markStudioDirty() {
+  if (state.comms.activePresetId) {
+    state.comms.activePresetId = null;
+    document.querySelectorAll('.lbs-presets button.active')
+      .forEach(b => { b.classList.remove('active'); b.removeAttribute('aria-pressed'); });
+  }
 }
 
 function fitDeepSpace() {
@@ -7700,15 +7929,8 @@ function fitDeepSpace() {
 // === Link Budget Studio (right-panel UI) ===
 function renderLinkBudgetStudio() {
   const c = state.comms;
-  const lb = dsComputeLinkBudget(c, Date.now());
-  const verdictCls = lb.margin >= 3 ? 'ok' : (lb.margin >= 0 ? 'warn' : 'err');
-  const verdictText = lb.margin >= 3 ? 'Link closed' : (lb.margin >= 0 ? 'Marginal' : 'Fails');
-
-  // Helper to fmt dB / numbers with sign
-  const sf = (v, d = 1) => (v >= 0 ? '+' : '') + v.toFixed(d);
-  const f  = (v, d = 1) => v.toFixed(d);
-  const dBm = lb.prDbW + 30;
-  const prWatts = Math.pow(10, lb.prDbW / 10);
+  const lb = dsComputeLinkBudget(c, c.epochMs || Date.now());
+  const verdict = dsVerdict(lb);
 
   // Build options
   const srcOpts = Object.entries(DS_SOURCES).map(([k, v]) =>
@@ -7717,69 +7939,82 @@ function renderLinkBudgetStudio() {
     `<option value="${k}" ${k === c.targetId ? 'selected' : ''}>${escapeHtml(v.label)}</option>`).join('');
   const modOpts = Object.entries(DS_MODFEC).map(([k, v]) =>
     `<option value="${k}" ${k === c.modFec ? 'selected' : ''}>${escapeHtml(v.label)} (Eb/N₀≥${v.ebn0Req} dB)</option>`).join('');
-  const presetBtns = Object.entries(DS_PRESETS).map(([k, p]) =>
-    `<button data-preset="${k}">${escapeHtml(p.label)}</button>`).join('');
 
-  // Log-slider helpers
+  // Slider builders. Labels are associated to inputs (for/id) and each input
+  // carries aria-label + aria-valuetext so the value is announced to AT.
   const logSlider = (id, val, lo, hi, label, unit, fmtFn) => {
     const logVal = Math.log10(val);
     const logLo  = Math.log10(lo);
     const logHi  = Math.log10(hi);
     return `
       <div class="lbs-row">
-        <label>${label}</label>
-        <input type="range" id="${id}" min="${logLo}" max="${logHi}" step="0.01" value="${logVal}">
+        <label for="${id}">${label}</label>
+        <input type="range" id="${id}" min="${logLo}" max="${logHi}" step="0.01" value="${logVal}"
+          aria-label="${escapeHtml(label)}" aria-valuetext="${escapeHtml(fmtFn(val) + ' ' + unit)}">
         <span class="val" id="${id}-val">${fmtFn(val)}<span class="unit">${unit}</span></span>
       </div>`;
   };
   const linSlider = (id, val, lo, hi, step, label, unit) => `
     <div class="lbs-row">
-      <label>${label}</label>
-      <input type="range" id="${id}" min="${lo}" max="${hi}" step="${step}" value="${val}">
+      <label for="${id}">${label}</label>
+      <input type="range" id="${id}" min="${lo}" max="${hi}" step="${step}" value="${val}"
+        aria-label="${escapeHtml(label)}" aria-valuetext="${val} ${unit}">
       <span class="val" id="${id}-val">${val}<span class="unit">${unit}</span></span>
     </div>`;
-
-  // Waterfall — show dB contributions to received power.
-  // Pt → +Gt → +Gr → −FSPL → −losses → Pr  (relative to a 300 dB scale)
-  const bar = (name, db, kind) => {
-    const widthPct = Math.min(100, Math.abs(db) / 3); // 1% per 3 dB
-    const sideStyle = db >= 0 ? `left:50%;width:${widthPct}%` : `right:50%;width:${widthPct}%`;
-    return `
-      <div class="lbs-bar ${kind}">
-        <span class="name">${name}</span>
-        <div class="track"><div class="fill" style="${sideStyle}"></div></div>
-        <span class="v">${sf(db, 1)} dB</span>
-      </div>`;
-  };
 
   const dom_pr = dom.prBody;
   const sourceInfo = DS_SOURCES[c.sourceId] || {};
   const targetInfo = DS_TARGETS[c.targetId] || {};
+
+  // Epoch / live-clock state
+  const liveEpoch = !c.epochOverrideMs;
+  const epochMs = c.epochMs || Date.now();
+  const epochYmd = new Date(epochMs).toISOString().slice(0, 10);
+  const activePreset = c.activePresetId;
 
   dom.prType.textContent = 'Link Budget Studio';
   dom_pr.innerHTML = `
   <div class="lbs">
     <div class="lbs-head">
       <span class="lbs-title"><b>${escapeHtml(sourceInfo.label || '')}</b> → <b>${escapeHtml(targetInfo.label || '')}</b></span>
-      <span class="lbs-verdict ${verdictCls}">${verdictText}</span>
+      <span class="lbs-verdict ${verdict.cls}" id="lbs-verdict">${verdict.text}</span>
     </div>
     <div class="lbs-body">
 
       <div class="lbs-section">
         <h4>Scenario presets</h4>
-        <div class="lbs-presets">${presetBtns}</div>
+        <div class="lbs-presets">${Object.entries(DS_PRESETS).map(([k, p]) =>
+          `<button data-preset="${k}"${k === activePreset ? ' class="active" aria-pressed="true"' : ''}>${escapeHtml(p.label)}</button>`).join('')}</div>
+        <div class="lbs-actions">
+          <button data-lbs-action="reset" title="Restore this station's default power, gain and noise temperature">↺ Reset</button>
+          <button data-lbs-action="copy" title="Copy the full link budget as text">⧉ Copy result</button>
+        </div>
+      </div>
+
+      <div class="lbs-section">
+        <h4>Epoch</h4>
+        <div class="lbs-row full">
+          <label for="lbs-date">Date</label>
+          <input type="date" id="lbs-date" value="${epochYmd}" aria-label="Ephemeris date">
+          <button id="lbs-now" class="lbs-now${liveEpoch ? ' active' : ''}"
+            title="Track the real clock for live planet positions"${liveEpoch ? ' aria-pressed="true"' : ''}>Now</button>
+        </div>
+        <div class="lbs-explain">Planet positions from J2000 mean elements. ${liveEpoch
+          ? '<b>Live</b> — tracking the real clock.'
+          : 'Frozen at the chosen date — press <b>Now</b> to resume live tracking.'}</div>
       </div>
 
       <div class="lbs-section">
         <h4>Endpoints</h4>
-        <div class="lbs-row full"><label>Transmit station</label>
-          <select id="lbs-source">${srcOpts}</select></div>
-        <div class="lbs-row full"><label>Target</label>
-          <select id="lbs-target">${tgtOpts}</select></div>
+        <div class="lbs-row full"><label for="lbs-source">Transmit station</label>
+          <select id="lbs-source" aria-label="Transmit station">${srcOpts}</select></div>
+        <div class="lbs-row full"><label for="lbs-target">Target</label>
+          <select id="lbs-target" aria-label="Target">${tgtOpts}</select></div>
         ${targetInfo.kind === 'custom' ? `
-          <div class="lbs-row"><label>Distance</label>
+          <div class="lbs-row"><label for="lbs-customdist">Distance</label>
             <input type="range" id="lbs-customdist" min="3" max="13" step="0.01"
-              value="${Math.log10(Math.max(1000, c.customTargetKm))}">
+              value="${Math.log10(Math.max(1000, c.customTargetKm))}"
+              aria-label="Custom target distance" aria-valuetext="${(c.customTargetKm / 1e6).toFixed(1)} million km">
             <span class="val" id="lbs-customdist-val">${(c.customTargetKm / 1e6).toFixed(1)}<span class="unit">M km</span></span>
           </div>` : ''}
         <div class="lbs-explain"><b>Source:</b> ${escapeHtml(sourceInfo.note || '')}<br>
@@ -7793,7 +8028,7 @@ function renderLinkBudgetStudio() {
         ${linSlider('lbs-gt', c.txGainDbi, 0, 80, 0.5, 'TX antenna gain', 'dBi')}
         ${linSlider('lbs-freq', c.freqGHz, 0.1, 100, 0.1, 'Carrier frequency', 'GHz')}
         <div class="lbs-explain">
-          Band: <b>${lb.bandName}</b>.
+          Band: <b id="lbs-band">${lb.bandName}</b>.
           Higher freq buys aperture gain (Gt ∝ f²) but suffers more rain/atm loss.
         </div>
       </div>
@@ -7804,51 +8039,21 @@ function renderLinkBudgetStudio() {
         ${linSlider('lbs-ts', c.noiseTempK, 20, 500, 1, 'System noise temp', 'K')}
         ${logSlider('lbs-rate', c.dataBps, 1, 1e9, 'Data rate', 'bps',
           v => v < 1000 ? v.toFixed(0) : v < 1e6 ? (v / 1e3).toFixed(0) + 'k' : v < 1e9 ? (v / 1e6).toFixed(1) + 'M' : (v / 1e9).toFixed(1) + 'G')}
-        <div class="lbs-row full"><label>Modulation + FEC</label>
-          <select id="lbs-modfec">${modOpts}</select></div>
+        <div class="lbs-row full"><label for="lbs-modfec">Modulation + FEC</label>
+          <select id="lbs-modfec" aria-label="Modulation and forward error correction">${modOpts}</select></div>
         ${linSlider('lbs-atm', c.atmLossDb, 0, 10, 0.1, 'Atmospheric loss', 'dB')}
         ${linSlider('lbs-point', c.pointingLossDb, 0, 5, 0.1, 'Pointing loss', 'dB')}
       </div>
 
       <div class="lbs-section">
         <h4>Live readout</h4>
-        <div class="lbs-readout">
-          <span class="k">Distance</span>
-            <span class="v">${(lb.distKm / 1e6).toFixed(1)} M km
-              <span class="sub">${(lb.distKm / DS_AU_KM).toFixed(3)} AU</span></span>
-          <span class="k">One-way delay</span>
-            <span class="v">${dsFormatDelay(lb.lightS)}
-              <span class="sub">round trip ${dsFormatDelay(lb.lightS * 2)}</span></span>
-          <span class="k">FSPL</span>
-            <span class="v">${f(lb.fsplDb, 1)} dB</span>
-          <span class="k">Received power</span>
-            <span class="v">${f(lb.prDbW, 1)} dBW
-              <span class="sub">${f(dBm, 1)} dBm · ${prWatts < 1e-15 ? prWatts.toExponential(2) : prWatts.toExponential(2)} W</span></span>
-          <span class="k">C/N₀</span>
-            <span class="v">${f(lb.cn0, 1)} dB·Hz</span>
-          <span class="k">Eb/N₀ achieved</span>
-            <span class="v ${lb.margin >= 3 ? 'good' : (lb.margin >= 0 ? 'warn' : 'bad')}">${f(lb.ebN0, 1)} dB</span>
-          <span class="k">Eb/N₀ required</span>
-            <span class="v">${f(lb.requiredEbN0, 1)} dB
-              <span class="sub">${escapeHtml(lb.modLabel)}</span></span>
-          <span class="k">Margin</span>
-            <span class="v ${lb.margin >= 3 ? 'good' : (lb.margin >= 0 ? 'warn' : 'bad')}">${sf(lb.margin, 1)} dB</span>
-          <span class="k">Shannon bound</span>
-            <span class="v">${lb.shannonBps > 1e6 ? (lb.shannonBps / 1e6).toFixed(1) + ' Mbps' : (lb.shannonBps / 1e3).toFixed(2) + ' kbps'}</span>
-        </div>
-        <div class="lbs-explain"><b>Verdict:</b> ${escapeHtml(lb.limiter)}.</div>
+        <div class="lbs-readout" id="lbs-readout" aria-live="polite">${lbsReadoutHtml(lb, c)}</div>
+        <div class="lbs-explain"><b>Limiting factor:</b> <span id="lbs-limiter">${escapeHtml(lb.limiter)}</span>.</div>
       </div>
 
       <div class="lbs-section">
         <h4>dB waterfall</h4>
-        <div class="lbs-waterfall">
-          ${bar('TX power',  lb.ptDbW,         'note')}
-          ${bar('+ TX gain', c.txGainDbi,      'gain')}
-          ${bar('+ RX gain', c.rxGainDbi,      'gain')}
-          ${bar('− FSPL',    -lb.fsplDb,       'loss')}
-          ${bar('− atm/point', -(c.atmLossDb + c.pointingLossDb), 'loss')}
-          ${bar('= Pr',      lb.prDbW,         'note')}
-        </div>
+        <div class="lbs-waterfall" id="lbs-waterfall">${lbsWaterfallHtml(lb, c)}</div>
       </div>
 
     </div>
@@ -7866,16 +8071,18 @@ function renderLinkBudgetStudio() {
       if (unit) el.appendChild(unit);
     }
   };
-  // Wire log sliders
+  // Wire sliders: on 'input' mutate state + patch the value label and aria, then
+  // schedule ONE rAF-coalesced live update. The panel is never rebuilt here, so a
+  // press-and-drag (or held arrow key) keeps the same input element and focus.
   const wireLog = (id, key, fmt) => {
     const el = $(id);
     if (!el) return;
     el.addEventListener('input', () => {
       c[key] = Math.pow(10, parseFloat(el.value));
       setVal(id, c[key], fmt);
-      // Re-render canvas + readouts (debounced via rAF would be nicer; this is fine)
-      renderDeepSpace();
-      renderLinkBudgetStudio();
+      el.setAttribute('aria-valuetext', fmt(c[key]));
+      markStudioDirty();
+      scheduleLbsLive();
     });
   };
   const wireLin = (id, key, fmt) => {
@@ -7884,8 +8091,9 @@ function renderLinkBudgetStudio() {
     el.addEventListener('input', () => {
       c[key] = parseFloat(el.value);
       setVal(id, c[key], fmt);
-      renderDeepSpace();
-      renderLinkBudgetStudio();
+      el.setAttribute('aria-valuetext', fmt(c[key]));
+      markStudioDirty();
+      scheduleLbsLive();
     });
   };
   wireLog('lbs-pt',   'txPowerW',
@@ -7899,46 +8107,70 @@ function renderLinkBudgetStudio() {
   wireLin('lbs-atm',  'atmLossDb',     v => v.toFixed(1));
   wireLin('lbs-point','pointingLossDb',v => v.toFixed(1));
 
-  // Custom distance slider (only when target is 'custom')
+  // Custom distance slider (only when target is 'custom') — same in-place path.
   const cd = $('lbs-customdist');
   if (cd) {
     cd.addEventListener('input', () => {
       c.customTargetKm = Math.pow(10, parseFloat(cd.value));
-      renderDeepSpace();
-      renderLinkBudgetStudio();
+      setVal('lbs-customdist', c.customTargetKm / 1e6, v => v.toFixed(1));
+      cd.setAttribute('aria-valuetext', (c.customTargetKm / 1e6).toFixed(1) + ' million km');
+      markStudioDirty();
+      scheduleLbsLive();
     });
   }
 
-  // Selects
+  // Selects change the panel's structure (target toggles the custom-distance row;
+  // source adopts new defaults) so a full rebuild is correct here — these are
+  // discrete commits, not drags.
   const onSel = (id, key, after) => {
     const el = $(id);
     if (!el) return;
     el.addEventListener('change', () => {
       c[key] = el.value;
       if (after) after();
+      markStudioDirty();
       renderDeepSpace();
       renderLinkBudgetStudio();
       updateSiteBar();
     });
   };
   onSel('lbs-source', 'sourceId', () => {
-    // When source changes, adopt its sensible defaults if user hasn't tweaked.
+    // When the station changes, adopt its representative defaults.
     const s = DS_SOURCES[c.sourceId];
     if (s) {
-      c.txPowerW  = s.defaultTxW;
-      c.txGainDbi = s.defaultGtDbi;
+      c.txPowerW   = s.defaultTxW;
+      c.txGainDbi  = s.defaultGtDbi;
       c.noiseTempK = s.defaultTsK;
+      if (s.defaultFreqGHz) c.freqGHz = s.defaultFreqGHz;
     }
   });
   onSel('lbs-target', 'targetId');
   onSel('lbs-modfec', 'modFec');
 
-  // Presets
+  // Epoch controls — pick a date (frozen) or snap back to the live clock.
+  const dateEl = $('lbs-date');
+  if (dateEl) dateEl.addEventListener('change', () => {
+    const t = Date.parse(dateEl.value + 'T12:00:00Z');
+    if (!isNaN(t)) {
+      c.epochOverrideMs = t;
+      renderDeepSpace(); renderLinkBudgetStudio(); updateSiteBar();
+    }
+  });
+  const nowBtn = $('lbs-now');
+  if (nowBtn) nowBtn.addEventListener('click', () => {
+    c.epochOverrideMs = null;
+    renderDeepSpace(); renderLinkBudgetStudio(); updateSiteBar();
+  });
+
+  // Presets — apply, mark active, and make undoable.
   dom_pr.querySelectorAll('[data-preset]').forEach(btn => {
     btn.addEventListener('click', () => {
-      const p = DS_PRESETS[btn.getAttribute('data-preset')];
+      const id = btn.getAttribute('data-preset');
+      const p = DS_PRESETS[id];
       if (p && p.apply) {
+        pushHistory();
         p.apply(c);
+        c.activePresetId = id;
         renderDeepSpace();
         renderLinkBudgetStudio();
         updateSiteBar();
@@ -7946,23 +8178,85 @@ function renderLinkBudgetStudio() {
     });
   });
 
-  // Click a planet in the viz to set it as target (event delegation here so it
-  // survives re-renders) — handled in renderDeepSpace's per-planet click.
+  // Reset / Copy actions.
+  dom_pr.querySelectorAll('[data-lbs-action]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const action = btn.getAttribute('data-lbs-action');
+      if (action === 'reset') {
+        const s = DS_SOURCES[c.sourceId];
+        if (s) {
+          pushHistory();
+          c.txPowerW   = s.defaultTxW;
+          c.txGainDbi  = s.defaultGtDbi;
+          c.noiseTempK = s.defaultTsK;
+          if (s.defaultFreqGHz) c.freqGHz = s.defaultFreqGHz;
+          c.activePresetId = null;
+          renderDeepSpace();
+          renderLinkBudgetStudio();
+          updateSiteBar();
+          if (typeof toast === 'function') toast('Reset to ' + (s.label || 'station') + ' defaults', { variant: 'info' });
+        }
+      } else if (action === 'copy') {
+        lbsCopyResult(c);
+      }
+    });
+  });
 
-  // Append the Deep Space Mesh panel below the Link Budget Studio so the user
-  // sees their placed units, anchors, latency and reachability summary in the
-  // same right-side pane.
+  // Append the Deep Space Mesh panel INSIDE the scrolling body (a sibling after
+  // the height:100% .lbs would fall below the fold). Only rebuilt on full
+  // studio renders — slider drags no longer touch it.
   if (typeof renderDeepSpaceMeshPanel === 'function') {
     const meshHost = document.createElement('div');
     meshHost.className = 'lbs-section';
-    meshHost.style.cssText = 'margin-top:16px;padding-top:12px;border-top:1px solid #1f2937';
-    meshHost.innerHTML = '<h4 style="margin:0 0 8px">Deep Space Mesh</h4>';
+    meshHost.innerHTML = '<h4>Deep Space Mesh</h4>';
     const mountPoint = document.createElement('div');
     meshHost.appendChild(mountPoint);
-    dom_pr.appendChild(meshHost);
+    (dom_pr.querySelector('.lbs-body') || dom_pr).appendChild(meshHost);
     try { renderDeepSpaceMeshPanel(mountPoint, state); }
     catch (e) { console.warn('renderDeepSpaceMeshPanel failed', e); }
   }
+}
+
+// Build a plain-text link-budget summary and copy it to the clipboard.
+function lbsCopyResult(c) {
+  const lb = dsComputeLinkBudget(c, c.epochMs || Date.now());
+  const src = (DS_SOURCES[c.sourceId] || {}).label || c.sourceId;
+  const tgt = (DS_TARGETS[c.targetId] || {}).label || c.targetId;
+  const sgn = v => (v >= 0 ? '+' : '') + v.toFixed(1);
+  const text = [
+    'GreyNet — Interplanetary Link Budget',
+    `${src} → ${tgt}`,
+    `Distance: ${(lb.distKm / 1e6).toFixed(1)} M km (${(lb.distKm / DS_AU_KM).toFixed(3)} AU)`,
+    `One-way delay: ${dsFormatDelay(lb.lightS)}`,
+    `TX: ${c.txPowerW} W, ${c.txGainDbi} dBi @ ${c.freqGHz} GHz (${lb.bandName}-band)`,
+    `RX: ${c.rxGainDbi} dBi, system noise ${c.noiseTempK} K`,
+    `Data rate: ${c.dataBps} bps, ${lb.modLabel}`,
+    `FSPL: ${lb.fsplDb.toFixed(1)} dB`,
+    `C/N0: ${lb.cn0.toFixed(1)} dB-Hz`,
+    `Eb/N0: ${lb.ebN0.toFixed(1)} dB achieved vs ${lb.requiredEbN0} dB required`,
+    `Margin: ${sgn(lb.margin)} dB — ${dsVerdict(lb).text}`,
+  ].join('\n');
+  const ok = () => { if (typeof toast === 'function') toast('Link budget copied to clipboard', { variant: 'success' }); };
+  const fail = () => { if (typeof toast === 'function') toast('Could not copy to clipboard', { variant: 'warn' }); };
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(ok).catch(() => lbsCopyFallback(text, ok, fail));
+    } else {
+      lbsCopyFallback(text, ok, fail);
+    }
+  } catch (e) { lbsCopyFallback(text, ok, fail); }
+}
+function lbsCopyFallback(text, ok, fail) {
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;opacity:0;pointer-events:none';
+    document.body.appendChild(ta);
+    ta.select();
+    const done = document.execCommand && document.execCommand('copy');
+    document.body.removeChild(ta);
+    (done ? ok : fail)();
+  } catch (e) { fail(); }
 }
 
 
@@ -8008,6 +8302,12 @@ async function init() {
   // Kick off the Orbit rotation loop if we restored a session already in
   // Orbit view (setViewMode normally does this; init bypasses it).
   if (state.viewMode === 'space') startOrbitAnimation();
+  // Pause the Orbit rotation while the window/tab is hidden — no point burning a
+  // GPU/CPU frame loop (and battery) on an Earth nobody can see.
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) stopOrbitAnimation();
+    else if (state.viewMode === 'space') startOrbitAnimation();
+  });
   // Wait one frame so canvas has its final size, then fit if no saved viewport
   if (!restored) requestAnimationFrame(fitView);
   // Tell the user if a corrupt autosave was detected and reset on this boot.
