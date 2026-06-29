@@ -24,8 +24,8 @@
     "leaflet": "^1.9.4"
   },
   "devDependencies": {
-    "@playwright/test": "^1.60.0",
-    "electron": "^42.4.0",
+    "@playwright/test": "^1.61.1",
+    "electron": "^42.5.0",
     "electron-builder": "^26.15.3"
   },
   "build": {
