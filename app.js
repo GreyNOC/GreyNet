@@ -37,8 +37,12 @@ function typeOf(item) {
   if (item.fromEpId && item.toEpId)               return 'citylink';
   if (item.type && ENDPOINT_TYPES[item.type])     return 'endpoint';
   if (item.centerLat != null)                     return 'city';
-  if (item.type && typeof DEEP_SPACE_UNIT_TYPES !== 'undefined' && DEEP_SPACE_UNIT_TYPES[item.type]) return 'deepunit';
+  // Link check FIRST: 'ds_relay'/'ds_quantum' exist in both the unit and
+  // link type tables, and only links carry fromId/toId — checking units
+  // first classified those links as units (Duplicate then inserted link
+  // clones into deepSpaceUnits as phantom relays).
   if (item.type && typeof DEEP_SPACE_LINK_TYPES !== 'undefined' && DEEP_SPACE_LINK_TYPES[item.type] && item.fromId && item.toId) return 'deeplink';
+  if (item.type && typeof DEEP_SPACE_UNIT_TYPES !== 'undefined' && DEEP_SPACE_UNIT_TYPES[item.type]) return 'deepunit';
   if (item.type && typeof PLANET_INFRA_TYPES !== 'undefined' && PLANET_INFRA_TYPES[item.type] && item.lat != null) return 'planetinfra';
   if (item.lat != null && item.lng != null)       return 'site';
   if (item.fromSiteId && item.toSiteId)           return 'sitelink';
@@ -441,7 +445,49 @@ function updateGridBounds() {
   dom.gridBg.setAttribute('height', Math.ceil((h + (y - sy)) / snapTo) * snapTo + snapTo);
 }
 
+/* === CRASH RESILIENCE ===
+   One poisoned object must not kill the whole app: renderAll is the single
+   choke-point every interaction funnels through, so a throw here used to
+   leave a permanently broken (often blank) canvas while autosave kept
+   persisting the bad state. Guard it: log + toast on first failure, and
+   after repeated consecutive failures offer a reload (work is autosaved). */
+let _renderFailStreak = 0;
+let _reloadOffered = false;
 function renderAll() {
+  try {
+    _renderAllInner();
+    _renderFailStreak = 0;
+  } catch (err) {
+    _renderFailStreak++;
+    console.error('renderAll failed', err);
+    if (_renderFailStreak === 1 && typeof toast === 'function') {
+      toast('Render error: ' + (err && err.message ? err.message : err), { variant: 'error', ttlMs: 6000 });
+    }
+    if (_renderFailStreak >= 3 && !_reloadOffered && typeof showModalConfirm === 'function') {
+      _reloadOffered = true;
+      showModalConfirm(
+        'Rendering keeps failing',
+        'Reload GreyNet? Your latest work is autosaved and will be restored.',
+        { confirmLabel: 'Reload' }
+      ).then(yes => { if (yes) location.reload(); });
+    }
+  }
+}
+
+// Last-resort net for errors outside the render path (event handlers, async).
+let _lastGlobalErrToastTs = 0;
+function _reportGlobalError(msg) {
+  const now = Date.now();
+  if (now - _lastGlobalErrToastTs < 10000) return; // don't toast-storm
+  _lastGlobalErrToastTs = now;
+  if (typeof toast === 'function') {
+    toast('Unexpected error: ' + String(msg).slice(0, 140), { variant: 'error', ttlMs: 6000 });
+  }
+}
+window.addEventListener('error', (e) => _reportGlobalError(e.message || e.error));
+window.addEventListener('unhandledrejection', (e) => _reportGlobalError(e.reason && e.reason.message ? e.reason.message : e.reason));
+
+function _renderAllInner() {
   if (state.viewMode === 'world') {
     renderWorldMap();
     renderTerminator();
@@ -3472,7 +3518,10 @@ dom.svg.addEventListener('mousedown', (e) => {
         kind: 'move', startWorld: world,
         items: [...state.selectedIds].map(sid => {
           const it = anyById(sid);
-          if (!it) return null;
+          // Only positional items ride the drag — a selected LINK has no
+          // x/y, and snap(undefined + dx) would write NaN coords onto it
+          // (polluting every autosave/undo snapshot).
+          if (!it || typeof it.x !== 'number' || typeof it.y !== 'number') return null;
           return { id: sid, kind: typeOf(it), startX: it.x, startY: it.y };
         }).filter(Boolean)
       };
@@ -3999,7 +4048,8 @@ let _gmapLoaded = false;
 let _gmapMarkers = new Map();      // endpointId → google.maps.Marker
 let _gmapPolylines = new Map();    // cityLinkId → google.maps.Polyline
 let _gmapLoadPromise = null;
-let _activeBackend = null;          // 'osm' | 'gmaps' | 'image' | null
+let _activeBackend = null;          // 'osm' | 'gmaps' | 'image' | null (null while hidden)
+let _lastLiveBackend = null;        // last backend that OWNED #tile-map's DOM (survives hidden phases)
 
 function setTileStatus(message, level = 'info') {
   let status = dom.tileMap.querySelector('.tile-map-status');
@@ -4050,21 +4100,29 @@ function syncTileMap() {
   updateOnlineMapHint();
   if (!showTile) {
     setTileStatus('');
+    // Keep instances warm for fast re-entry, but remember which backend
+    // owns the div — nulling only _activeBackend used to skip the teardown
+    // below when the user switched backends THROUGH a hidden/image phase,
+    // letting ensureGoogleMap wipe Leaflet's live DOM (permanently blank
+    // OSM map until reload).
     _activeBackend = null;
     return;
   }
   setTileStatus(city.mapBackend === 'osm' ? 'Loading street map tiles…' : '');
-  // Switching backend: clear the tile-map div so the new backend can take over
-  if (_activeBackend && _activeBackend !== city.mapBackend) {
+  // Switching backend: clear the tile-map div so the new backend can take
+  // over. Keyed on the last backend that OWNED the div (survives hidden
+  // phases), not on the visibility-scoped _activeBackend.
+  if (_lastLiveBackend && _lastLiveBackend !== city.mapBackend) {
     // Destroy previous map instance so it doesn't fight for the div
-    if (_activeBackend === 'osm' && _leafletMap) {
+    if (_lastLiveBackend === 'osm' && _leafletMap) {
       try { _leafletMap.remove(); } catch (e) {}
       _leafletMap = null; _leafletMarkers.clear(); _leafletPolylines.clear();
-    } else if (_activeBackend === 'gmaps' && _gmapMap) {
+    } else if (_lastLiveBackend === 'gmaps' && _gmapMap) {
       _gmapMap = null; _gmapMarkers.clear(); _gmapPolylines.clear();
     }
     dom.tileMap.innerHTML = '';
   }
+  _lastLiveBackend = city.mapBackend;
   _activeBackend = city.mapBackend;
   if (city.mapBackend === 'osm')   ensureLeafletMap(city);
   if (city.mapBackend === 'gmaps') ensureGoogleMap(city);
@@ -4216,7 +4274,18 @@ function syncGooglePolylines() {
 }
 
 function onGoogleMapClick(e) {
-  // Same logic as the Leaflet click: only place when there's a pending endpoint type
+  // Mirror the Leaflet click handler: pending SITE placement first (this
+  // branch was missing — the palette advertised "click the map to place"
+  // on the Google backend but the click was silently ignored)…
+  if (state.activeCitySiteId) {
+    const city = cityById(state.activeCityId);
+    placeSiteOnCityLatLng(state.activeCitySiteId, city, e.latLng.lat(), e.latLng.lng());
+    state.activeCitySiteId = null;
+    dom.svg.classList.remove('place-site');
+    clearCitySitePaletteSelection();
+    return;
+  }
+  // …then pending endpoint placement.
   if (!state.activeEndpointType) return;
   const def = ENDPOINT_TYPES[state.activeEndpointType];
   const city = cityById(state.activeCityId);
@@ -4302,22 +4371,29 @@ function initLeafletMap(city) {
       }
     });
     _leafletMap.on('click', onLeafletMapClick);
+    // The container div (#tile-map) SURVIVES map teardown/rebuild cycles —
+    // wire drag-drop once or every osm→gmaps→osm round trip stacks another
+    // listener and one drop starts costing multiple undo steps.
     const mapEl = _leafletMap.getContainer();
-    mapEl.addEventListener('dragover', (e) => {
-      if (e.dataTransfer.types.includes('text/site-id')) {
+    if (!mapEl.dataset.dropWired) {
+      mapEl.dataset.dropWired = '1';
+      mapEl.addEventListener('dragover', (e) => {
+        if (e.dataTransfer.types.includes('text/site-id')) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+        }
+      });
+      mapEl.addEventListener('drop', (e) => {
+        const siteId = e.dataTransfer.getData('text/site-id');
+        if (!siteId) return;
         e.preventDefault();
-        e.dataTransfer.dropEffect = 'copy';
-      }
-    });
-    mapEl.addEventListener('drop', (e) => {
-      const siteId = e.dataTransfer.getData('text/site-id');
-      if (!siteId) return;
-      e.preventDefault();
-      const activeCity = cityById(state.activeCityId);
-      if (!activeCity) return;
-      const point = _leafletMap.mouseEventToLatLng(e);
-      placeSiteOnCityLatLng(siteId, activeCity, point.lat, point.lng);
-    });
+        if (!_leafletMap) return; // backend switched since wiring
+        const activeCity = cityById(state.activeCityId);
+        if (!activeCity) return;
+        const point = _leafletMap.mouseEventToLatLng(e);
+        placeSiteOnCityLatLng(siteId, activeCity, point.lat, point.lng);
+      });
+    }
   } else {
     _leafletMap.setView([city.centerLat, city.centerLng], 13);
     _leafletMap.invalidateSize();
@@ -4327,6 +4403,11 @@ function initLeafletMap(city) {
 }
 
 function syncLeafletMarkers() {
+  // City-marker sync DISPATCHER: most call sites (delete, paste, property
+  // edits, fix-it, AI actions) predate the Google backend and call this
+  // name. Route to whichever backend is live so ghost gmaps markers can't
+  // linger after deletes and mint links to dead endpoints.
+  if (_activeBackend === 'gmaps') { syncGoogleMarkers(); return; }
   if (!_leafletMap || !window.L) return;
   // Remove all existing markers and lines
   for (const m of _leafletMarkers.values()) _leafletMap.removeLayer(m);
@@ -4891,6 +4972,138 @@ function duplicateSelection() {
   syncLeafletMarkers();
 }
 
+/* === IN-APP CLIPBOARD ===
+   Copy captures deep clones of the selection (plus links whose BOTH ends are
+   captured). Paste re-inserts with fresh ids into the CURRENT context — the
+   active site/city — which is what makes it more than Duplicate: copy in
+   site A's local view, switch to site B, paste. Kinds are filtered to what
+   the current view can show, mirroring selectAll's scoping. */
+let _clipboard = null;
+
+function copySelection() {
+  if (state.selectedIds.size === 0) return;
+  const items = [];
+  for (const id of state.selectedIds) {
+    const obj = anyById(id);
+    if (!obj) continue;
+    const kind = typeOf(obj);
+    if (['device', 'zone', 'endpoint', 'spaceasset', 'planetinfra', 'deepunit'].includes(kind)) {
+      if (kind === 'endpoint' && obj.siteId) continue; // site markers are 1:1 with their site
+      items.push({ kind, obj: deepClone(obj) });
+    }
+  }
+  const ids = new Set(items.map(it => it.obj.id));
+  const links = [];
+  const capture = (list, kind, fromKey, toKey) => {
+    for (const l of list || []) {
+      if (ids.has(l[fromKey]) && ids.has(l[toKey])) links.push({ kind, obj: deepClone(l), fromKey, toKey });
+    }
+  };
+  capture(state.links, 'link', 'fromId', 'toId');
+  capture(state.cityLinks, 'citylink', 'fromEpId', 'toEpId');
+  capture(state.spaceLinks, 'spacelink', 'fromAssetId', 'toAssetId');
+  capture(state.deepSpaceLinks, 'deeplink', 'fromId', 'toId');
+  if (!items.length) return;
+  _clipboard = { items, links };
+  if (typeof toast === 'function') {
+    toast(`Copied ${items.length} item${items.length === 1 ? '' : 's'}.`, { variant: 'info', ttlMs: 2000 });
+  }
+}
+
+const PASTE_KINDS_BY_VIEW = {
+  local: ['device', 'zone'],
+  city: ['endpoint'],
+  world: ['planetinfra'],
+  space: ['spaceasset'],
+  deepspace: ['deepunit'],
+};
+
+function pasteClipboard() {
+  if (!_clipboard || !_clipboard.items.length) return;
+  const allowed = PASTE_KINDS_BY_VIEW[state.viewMode] || PASTE_KINDS_BY_VIEW.local;
+  const usable = _clipboard.items.filter(it => allowed.includes(it.kind));
+  if (!usable.length) {
+    if (typeof toast === 'function') {
+      toast('Clipboard has nothing for this view — switch to the view you copied from.', { variant: 'warn', ttlMs: 3500 });
+    }
+    return;
+  }
+  pushHistory();
+  const idMap = {};
+  const newIds = new Set();
+  for (const it of usable) {
+    const copy = deepClone(it.obj);
+    idMap[it.obj.id] = copy.id = uid();
+    if (it.kind === 'device') { copy.x = (copy.x || 0) + 30; copy.y = (copy.y || 0) + 30; copy.siteId = state.activeSiteId; state.devices.push(copy); }
+    else if (it.kind === 'zone') { copy.x = (copy.x || 0) + 30; copy.y = (copy.y || 0) + 30; copy.siteId = state.activeSiteId; state.zones.push(copy); }
+    else if (it.kind === 'endpoint') {
+      copy.x = (copy.x || 0) + 30; copy.y = (copy.y || 0) + 30;
+      if (copy.lat != null) copy.lat += 0.004;
+      if (copy.lng != null) copy.lng += 0.004;
+      copy.cityId = state.activeCityId;
+      state.endpoints.push(copy);
+    }
+    else if (it.kind === 'planetinfra') { copy.lat = clamp((copy.lat || 0) + 4, -85, 85); copy.lng = (copy.lng || 0) + 4; state.planetInfra.push(copy); }
+    else if (it.kind === 'spaceasset') { copy.angle = (copy.angle || 0) + 0.35; state.spaceAssets.push(copy); }
+    else if (it.kind === 'deepunit') { copy.x = (copy.x || 0) + 40; copy.y = (copy.y || 0) + 40; state.deepSpaceUnits.push(copy); }
+    newIds.add(copy.id);
+  }
+  const listFor = { link: () => state.links, citylink: () => state.cityLinks,
+                    spacelink: () => state.spaceLinks, deeplink: () => (state.deepSpaceLinks = state.deepSpaceLinks || []) };
+  for (const lk of _clipboard.links) {
+    const f = idMap[lk.obj[lk.fromKey]], t = idMap[lk.obj[lk.toKey]];
+    if (!f || !t) continue; // an end wasn't pasteable in this view
+    const copy = deepClone(lk.obj);
+    copy.id = uid();
+    copy[lk.fromKey] = f;
+    copy[lk.toKey] = t;
+    listFor[lk.kind]().push(copy);
+    newIds.add(copy.id);
+  }
+  state.selectedIds = newIds;
+  renderAll();
+  syncLeafletMarkers();
+}
+
+/* === ARROW-KEY NUDGE ===
+   Moves positional (x/y) selections by the grid step, or by 1px with Shift
+   for fine placement. History is pushed once per nudge burst, not per key
+   repeat, so undo undoes the whole movement. */
+let _lastNudgeTs = 0;
+let _lastNudgeHistLen = -1;
+function nudgeSelection(dx, dy, fine) {
+  if (state.selectedIds.size === 0) return false;
+  const step = fine ? 1 : (state.gridSize || 20);
+  const movable = [];
+  for (const id of state.selectedIds) {
+    const obj = anyById(id);
+    if (!obj) continue;
+    const kind = typeOf(obj);
+    // View-scoped like every other mutation: warning-tray clicks can select
+    // local devices from ANY view, and an arrow press there must not move
+    // invisible objects.
+    if ((kind === 'device' || kind === 'zone') && state.viewMode === 'local') movable.push(obj);
+    else if (kind === 'endpoint' && state.viewMode === 'city' && obj.lat == null) movable.push(obj);
+    else if (kind === 'deepunit' && state.viewMode === 'deepspace' && !obj.anchor) movable.push(obj);
+  }
+  if (!movable.length) return false;
+  // One history entry per burst — but only while the stack is where this
+  // burst left it. Undo/redo (or any other edit) changes the length, which
+  // re-arms the push so post-undo nudges are never merged into a dead burst.
+  const now = Date.now();
+  if (now - _lastNudgeTs > 800 || history.past.length !== _lastNudgeHistLen) {
+    pushHistory();
+  }
+  _lastNudgeHistLen = history.past.length;
+  _lastNudgeTs = now;
+  for (const obj of movable) {
+    obj.x = (obj.x || 0) + dx * step;
+    obj.y = (obj.y || 0) + dy * step;
+  }
+  renderAll();
+  return true;
+}
+
 function selectAll() {
   state.selectedIds.clear();
   // Scope to what the current view actually shows — a global select-all
@@ -4912,7 +5125,9 @@ function selectAll() {
     for (const u of (state.deepSpaceUnits || [])) state.selectedIds.add(u.id);
     for (const l of (state.deepSpaceLinks || [])) state.selectedIds.add(l.id);
   } else {
-    const inSite = (sid) => !state.activeSiteId || sid === state.activeSiteId;
+    // Match renderDevices/renderZones exactly: items WITHOUT a siteId render
+    // in every site, so select-all must include them too.
+    const inSite = (sid) => !state.activeSiteId || !sid || sid === state.activeSiteId;
     for (const d of state.devices) if (inSite(d.siteId)) state.selectedIds.add(d.id);
     for (const l of state.links) {
       const f = deviceById(l.fromId), t = deviceById(l.toId);
@@ -5008,11 +5223,20 @@ function validate() {
       };
       for (const sec of ['local','city','planet','orbit','deepspace']) {
         const st = v.sectionStatus[sec];
-        for (const m of st.blockers) {
-          warnings.push({ severity: 'err',  msg: `[${sectionLabel[sec]}] ${m}` });
-        }
-        for (const m of st.warnings) {
-          warnings.push({ severity: 'warn', msg: `[${sectionLabel[sec]}] ${m}` });
+        // Prefer coded findings (validator ≥1.0): same messages, plus a
+        // stable `code` the Fix-it engine can act on. Fall back to the plain
+        // string arrays for older validator builds.
+        if (Array.isArray(st.findings) && st.findings.length === st.blockers.length + st.warnings.length) {
+          for (const f of st.findings) {
+            warnings.push({ severity: f.severity, msg: `[${sectionLabel[sec]}] ${f.msg}`, code: f.code });
+          }
+        } else {
+          for (const m of st.blockers) {
+            warnings.push({ severity: 'err',  msg: `[${sectionLabel[sec]}] ${m}` });
+          }
+          for (const m of st.warnings) {
+            warnings.push({ severity: 'warn', msg: `[${sectionLabel[sec]}] ${m}` });
+          }
         }
         for (const m of st.recommendations) {
           warnings.push({ severity: 'info', msg: `[${sectionLabel[sec]}] ${m}` });
@@ -5136,12 +5360,17 @@ function renderWarnings() {
   const sortOrder = { err: 0, warn: 1, info: 2 };
   warnings.sort((a, b) => sortOrder[a.severity] - sortOrder[b.severity]);
 
-  dom.warningsBody.innerHTML = warnings.map((w, i) =>
-    `<div class="warning-item" data-idx="${i}">` +
+  // Fix-it: findings with a stable code get a one-click deterministic repair
+  // (fixit.js). The button label says exactly what will be created/linked.
+  const canFix = typeof fixitFor === 'function';
+  dom.warningsBody.innerHTML = warnings.map((w, i) => {
+    const fx = (canFix && w.code) ? fixitFor(w.code, state) : null;
+    return `<div class="warning-item" data-idx="${i}">` +
       `<span class="sev ${w.severity}"></span>` +
       `<div class="msg">${escapeHtml(w.msg)}<div class="src">${w.severity.toUpperCase()}</div></div>` +
-    `</div>`
-  ).join('');
+      (fx ? `<button class="wfix" data-fix-idx="${i}" title="Apply this fix automatically">⚡ ${escapeHtml(fx.label)}</button>` : '') +
+    `</div>`;
+  }).join('');
   dom.warningsBody.querySelectorAll('.warning-item').forEach(el => {
     el.addEventListener('click', () => {
       const w = _lastWarnings[Number(el.getAttribute('data-idx'))];
@@ -5150,6 +5379,27 @@ function renderWarnings() {
         for (const id of w.sourceIds) state.selectedIds.add(id);
         renderAll();
       }
+    });
+  });
+  dom.warningsBody.querySelectorAll('.wfix').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation(); // the row click selects sourceIds — don't
+      const w = _lastWarnings[Number(btn.getAttribute('data-fix-idx'))];
+      const fx = (w && w.code && typeof fixitFor === 'function') ? fixitFor(w.code, state) : null;
+      if (!fx) return;
+      pushHistory();
+      let r;
+      try { r = fx.apply({ state, uid, snap }); }
+      catch (err) { r = { ok: false, note: err && err.message ? err.message : String(err) }; }
+      // Repairs check prerequisites before mutating, so a failed apply left
+      // state untouched — don't burn an undo step (or clear redo) for it.
+      if (!r || !r.ok) history.past.pop();
+      if (typeof toast === 'function') {
+        toast(r && r.ok ? (r.note || 'Fixed.') : `Couldn't fix: ${r && r.note ? r.note : 'unknown error'}`,
+          { variant: r && r.ok ? 'success' : 'warn', ttlMs: 4000 });
+      }
+      renderAll();
+      syncLeafletMarkers();
     });
   });
 }
@@ -5925,14 +6175,17 @@ function connectEverything() {
   const total = result.local + result.planet + result.city + result.space;
   if (total > 0) {
     renderAll();
+    syncLeafletMarkers(); // dispatcher — new city links must reach the tile map
     autosave();
   } else {
     history.past.pop();
   }
-  alert(total
-    ? `Auto-connect added ${total} connection${total === 1 ? '' : 's'}:\n` +
-      `Local: ${result.local}\nPlanet: ${result.planet}\nCity: ${result.city}\nOrbit: ${result.space}`
-    : 'Auto-connect did not find any missing likely connections.');
+  const summary = total
+    ? `Auto-connect added ${total} connection${total === 1 ? '' : 's'} — ` +
+      `Local: ${result.local}, Planet: ${result.planet}, City: ${result.city}, Orbit: ${result.space}.`
+    : 'Auto-connect did not find any missing likely connections.';
+  if (typeof toast === 'function') toast(summary, { variant: total ? 'success' : 'info', ttlMs: 5000 });
+  else alert(summary);
 }
 
 function pairKey(a, b) {
@@ -6359,6 +6612,21 @@ document.addEventListener('keydown', (e) => {
   if (mod && e.key.toLowerCase() === 'd') { e.preventDefault(); duplicateSelection(); return; }
   if (mod && e.key.toLowerCase() === 'a') { e.preventDefault(); selectAll(); return; }
   if (mod && e.key.toLowerCase() === 'o') { e.preventDefault(); openJSON(); return; }
+  // NB: these must run before the bare 'c'/'v' tool-mode keys below, or
+  // Ctrl+C would fall through and flip the app into Connect mode. Only
+  // intercept when a canvas selection exists — otherwise the user is
+  // copying TEXT (help modal, warnings, AI replies) and the native copy
+  // must go through untouched.
+  if (mod && e.key.toLowerCase() === 'c') {
+    if (state.selectedIds.size > 0) { e.preventDefault(); copySelection(); }
+    return;
+  }
+  if (mod && e.key.toLowerCase() === 'v') { e.preventDefault(); pasteClipboard(); return; }
+  if (e.key.startsWith('Arrow')) {
+    const dx = e.key === 'ArrowLeft' ? -1 : e.key === 'ArrowRight' ? 1 : 0;
+    const dy = e.key === 'ArrowUp' ? -1 : e.key === 'ArrowDown' ? 1 : 0;
+    if (nudgeSelection(dx, dy, e.shiftKey)) { e.preventDefault(); return; }
+  }
 
   if (e.key === 'Escape') {
     state.pendingConnectId = null;
@@ -6979,8 +7247,10 @@ function showHelp() {
         <tr><td><kbd>Esc</kbd></td><td>Cancel / deselect / return to select</td></tr>
         <tr><td><kbd>Del</kbd> / <kbd>Backspace</kbd></td><td>Delete selection</td></tr>
         <tr><td><kbd>Ctrl</kbd>+<kbd>D</kbd></td><td>Duplicate</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>C</kbd> / <kbd>Ctrl</kbd>+<kbd>V</kbd></td><td>Copy / paste (works across sites &amp; cities)</td></tr>
+        <tr><td>Arrows / <kbd>Shift</kbd>+arrows</td><td>Nudge selection by grid step / by 1px</td></tr>
         <tr><td><kbd>Ctrl</kbd>+<kbd>Z</kbd> / <kbd>Ctrl</kbd>+<kbd>Y</kbd></td><td>Undo / Redo</td></tr>
-        <tr><td><kbd>Ctrl</kbd>+<kbd>A</kbd></td><td>Select all</td></tr>
+        <tr><td><kbd>Ctrl</kbd>+<kbd>A</kbd></td><td>Select all (current view)</td></tr>
         <tr><td><kbd>Ctrl</kbd>+<kbd>S</kbd></td><td>Save JSON</td></tr>
         <tr><td><kbd>Ctrl</kbd>+<kbd>O</kbd></td><td>Open JSON</td></tr>
         <tr><td><kbd>Shift</kbd>+click</td><td>Add to selection</td></tr>
@@ -8153,6 +8423,14 @@ const DS_PRESETS = {
     }),
   },
 };
+
+// Expose the Deep-Space tables to the helper modules (deepspace-mesh, fixit)
+// the CSP-safe way — see the constants.js export note. Without this, `_g()`
+// falls to the eval shim, which the app's CSP blocks (`DS_TARGETS` → null →
+// Fix-it's Mars relay created unanchored).
+if (typeof window !== 'undefined') {
+  Object.assign(window, { DS_SOURCES, DS_TARGETS, DS_MODFEC, DS_PRESETS });
+}
 
 // === Ephemeris: simplified Standish J2000 mean elements ===
 function dsJulianDate(ms) { return ms / 86400000 + 2440587.5; }

@@ -165,10 +165,10 @@ as known follow-ups:
   toasts, DS mesh, orbit metrics). A complete file-per-feature split is
   high-risk relative to the existing test surface and is best done in
   small slices alongside future feature work — not as a Big Bang.
-- **In-app UI for architecture recommendations.** The warnings tray now
-  surfaces them, but there isn't yet a dedicated "Fix it" inline action
-  beside each blocker. Today the user has to navigate to the relevant
-  view manually.
+- ~~**In-app UI for architecture recommendations.**~~ Done in v1.0.0: the
+  warnings tray shows a ⚡ Fix button beside every finding `fixit.js` can
+  repair (19 of the validator's 26 coded finding types), each a
+  deterministic, idempotent, single-undo-step repair.
 - **Deep Space mesh panel** lives under the Link Budget Studio rather
   than its own pane. Functional but cramped on small windows.
 - **AI repair loop.** `repairArchitecture` currently produces a punch

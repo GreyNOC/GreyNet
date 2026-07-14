@@ -41,6 +41,9 @@ Produces a portable `.exe` and an NSIS installer under `dist/`. See [`package.js
 - Security zones (Internet / DMZ / Internal / Management / Guest).
 - Link types: Ethernet, Fiber, Wireless, VPN tunnel, Trunk (LACP).
 - Auto-connect: heuristically wires up missing likely links.
+- **Fix-it**: every architecture finding in the warnings tray carries a one-click ⚡ repair (add starter devices, wire a site, link city infra, add a DR site + WAN, ground station + uplink, deep-space handoff, …) — an empty diagram can be click-fixed to a complete Local→Deep Space architecture.
+- In-app clipboard (`Ctrl+C`/`Ctrl+V`) that pastes across sites and cities; arrow-key nudge.
+- Crash-resilient renderer: a poisoned object toasts an error instead of blanking the app; work is always autosaved.
 - Vulnerability scan + graded report (duplicate IPs/MACs, exposed devices, cross-zone links without inspection, etc.).
 - Exports: PNG / SVG diagram, HTML security report, HTML technical specs, CSV cost estimate.
 - JSON save/load; autosaves to `localStorage` every 5 seconds.
@@ -54,8 +57,10 @@ Produces a portable `.exe` and an NSIS installer under `dist/`. See [`package.js
 | `Esc` | Cancel / deselect |
 | `Del` | Delete selection |
 | `Ctrl+D` | Duplicate |
+| `Ctrl+C` / `Ctrl+V` | Copy / paste (works across sites & cities) |
+| Arrows / `Shift`+arrows | Nudge selection by grid step / by 1px |
 | `Ctrl+Z` / `Ctrl+Y` | Undo / Redo |
-| `Ctrl+A` | Select all |
+| `Ctrl+A` | Select all (current view) |
 | `Ctrl+S` / `Ctrl+O` | Save / Open JSON |
 | `Alt+drag` or middle-drag | Pan |
 | Wheel | Zoom |

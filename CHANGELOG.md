@@ -1,5 +1,64 @@
 # GreyNet — Changelog
 
+## 1.0.0 — Fix-it engine, crash resilience, full editing loop
+
+The completion release. New modules: `fixit.js` (deterministic repairs) and
+coded validator findings.
+
+- **Fix-it engine.** Every actionable finding in the warnings tray now
+  carries a one-click ⚡ Fix button. The validator emits stable machine
+  codes for all 26 finding types (legacy string output byte-identical);
+  `fixit.js` maps 19 of them to deterministic local repairs — add starter
+  devices, wire a site, create/link city infrastructure, add a DR site with
+  a WAN link, place a ground station/LEO/uplink, anchor a Mars relay and
+  its DSN handoff. Each repair validates its prerequisites, is idempotent,
+  names exactly what it did, and is a single undo step. Verified end to
+  end: 13 clicks take an EMPTY diagram to a complete architecture with a
+  proven Local→Deep Space path.
+- **Crash resilience.** `renderAll` — the choke-point every interaction
+  funnels through — is now guarded: one poisoned object can no longer
+  blank the app permanently. First failure toasts the error; repeated
+  failures offer a reload (work is autosaved). Global error/rejection
+  handlers (toast-rate-limited) catch everything outside the render path.
+- **Clipboard.** Ctrl+C / Ctrl+V with cross-context paste: copy devices in
+  one site and paste into another; endpoints re-home to the active city.
+  Links ride along when both ends are copied. View-scoped like Select All.
+  (Also fixes a latent bug: Ctrl+C used to fall through to the bare `C`
+  key and flip the app into Connect mode.)
+- **Nudge.** Arrow keys move the selection by the grid step, Shift+arrows
+  by 1 px, with one undo entry per movement burst.
+- **App identity.** GreyNet finally has an icon — orbital ring over a
+  glowing planet limb with constellation nodes, legible at 16 px — wired
+  into the installer, portable exe, and dev window.
+- **Local & City hardening** (adversarial review of the two views that
+  hadn't changed recently): the Google Maps backend now re-syncs after
+  every mutation (deletes/pastes/edits used to leave ghost markers that
+  could mint links to deleted endpoints); switching backends through a
+  hidden phase no longer permanently blanks the OSM map; site placement
+  works on the Google backend; a drag-drop listener leak, a NaN-coordinate
+  drag bug, a select-all/renderer disagreement, and one more `typeOf` key
+  collision (`ds_relay` links duplicating as phantom units) are fixed;
+  Auto-connect reports via toast and syncs the tile map.
+- Verifier-round refinements: Ctrl+C passes through to native text copy
+  when nothing is selected on canvas; nudge bursts re-arm after undo; fixes
+  with unmet prerequisites aren't offered (and a failed fix never burns an
+  undo step); the icon sources are un-gitignored so fresh clones build with
+  the icon.
+- **CSP correctness fix (also repairs v0.7.0/v0.8.0 latent breakage).** The
+  helper modules (validator/fixit/orbit-metrics/deepspace-mesh/planet-metrics)
+  read shared constant tables through a `new Function` global-scope shim —
+  which is `eval`, and the app's CSP forbids `'unsafe-eval'`. So in the real
+  (CSP-enforced) app every such lookup silently returned null: Fix-it's Mars
+  relay was created *unanchored* while the toast claimed "anchored to Mars,"
+  and — undetected since v0.7.0 — the orbit link validator, the Deep-Space
+  mesh light-times, and the planet link metrics degraded the same way. This
+  passed every prior test because CDP `page.evaluate` is CSP-exempt; caught
+  only by real-DOM-event verification. Fixed at the source: constants.js and
+  app.js now attach their tables to `window`, and `_g()` reads `window` first
+  (the eval shim remains a harmless last-resort fallback). Re-verified in real
+  page context: `new Function` is confirmed blocked, yet all lookups now
+  resolve (Mars relay anchors correctly; DS/orbit/planet metrics compute).
+
 ## 0.8.0 — Planet visual redesign + Planet/Orbit/Deep Space feature build
 
 New module: `planet-metrics.js` (great-circle math, solar position, site-link

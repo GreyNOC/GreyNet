@@ -419,6 +419,13 @@
   .warning-item .sev.info { background: var(--accent); }
   .warning-item .msg { flex: 1; }
   .warning-item .src { color: var(--text-faint); font-size: 10px; }
+  .warning-item .wfix { flex: none; align-self: center; white-space: nowrap;
+    background: color-mix(in srgb, var(--accent) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+    color: var(--accent); padding: 3px 9px; border-radius: var(--radius-pill);
+    font-size: 10.5px; cursor: pointer;
+    transition: background var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out); }
+  .warning-item .wfix:hover { background: var(--accent); color: var(--bg-0); }
 
   /* === STATUS BAR === */
   .sb-coords { font-family: "SF Mono", Menlo, Consolas, monospace; }

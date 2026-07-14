@@ -481,6 +481,10 @@ function aiModelFor(provider, settings) {
 }
 
 function createWindow() {
+  // Dev runs (`npm start`) pick up the repo icon; packaged builds fall back
+  // to the exe's embedded icon (set by electron-builder from build/icon.ico),
+  // which is the correct Windows behavior — build/ is not shipped in the asar.
+  const devIcon = path.join(__dirname, 'build', 'icon.png');
   mainWindow = new BrowserWindow({
     width: 1440,
     height: 900,
@@ -490,6 +494,7 @@ function createWindow() {
     title: 'GreyNet — Network Designer',
     autoHideMenuBar: true,
     show: false,
+    ...(fs.existsSync(devIcon) ? { icon: devIcon } : {}),
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

@@ -34,10 +34,15 @@
   const _cache = {};
   function _g(name) {
     if (_cache[name] !== undefined) return _cache[name];
-    let v = null;
-    try { /* eslint-disable-next-line no-new-func */
-      v = (new Function('try { return typeof ' + name + ' !== "undefined" ? ' + name + ' : null; } catch (_) { return null; }'))();
-    } catch (_) { v = null; }
+    // CSP-safe path: constants.js / app.js now attach these tables to window.
+    // Fall back to the eval shim only if a name isn't exported (it will just
+    // return null under the app's no-'unsafe-eval' CSP — same as before).
+    let v = (root && root[name] != null) ? root[name] : null;
+    if (v === null) {
+      try { /* eslint-disable-next-line no-new-func */
+        v = (new Function('try { return typeof ' + name + ' !== "undefined" ? ' + name + ' : null; } catch (_) { return null; }'))();
+      } catch (_) { v = null; }
+    }
     _cache[name] = v;
     return v;
   }

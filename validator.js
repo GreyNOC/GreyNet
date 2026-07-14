@@ -9,10 +9,21 @@
 
    Public surface:
      validateArchitectureGraph(state) → {
-       complete, sectionStatus, paths, orphanedObjects, recommendations
+       complete, sectionStatus, paths, orphanedObjects, recommendations,
+       findings
      }
      sectionBlockers(state, section) → string[]   (convenience)
      hasFullArchitecturePath(state) → boolean      (convenience)
+
+   `findings` is a machine-readable mirror of blockers/warnings: every
+   message pushed into a section's blockers/warnings also lands in that
+   section's `findings` array as { code, severity: 'err'|'warn', msg },
+   where `code` is a stable identifier (e.g. 'local.no-site') the UI can
+   key one-click fixes on. The top-level `findings` array concatenates all
+   sections' findings (each tagged with a `section` field: 'local'|'city'|
+   'planet'|'orbit'|'deepspace') plus global-scope entries ('global.*',
+   section 'global') for cross-layer conditions such as orphaned objects
+   and a missing Local→Deep Space path.
 
    The function is pure: it never mutates state. It accepts the live
    `state` object so callers can pass it directly.
@@ -24,17 +35,28 @@
   //
   // Each section returns:
   //   { complete: bool, blockers: string[], warnings: string[],
-  //     stats: {...}, evidence: {...} }
+  //     findings: [{code, severity, msg}], stats: {...}, evidence: {...} }
   //
   // `evidence` is what the caller can re-use to build the cross-layer paths.
+
+  // Single source for blockers/warnings + their machine-readable mirror:
+  // err()/warn() append the message string to blockers/warnings (unchanged
+  // legacy shape) AND push a coded finding into the parallel `findings`
+  // array, so the two can never drift apart.
+  function _collector() {
+    const blockers = [], warnings = [], findings = [];
+    const err  = (code, msg) => { blockers.push(msg); findings.push({ code, severity: 'err',  msg }); };
+    const warn = (code, msg) => { warnings.push(msg); findings.push({ code, severity: 'warn', msg }); };
+    return { blockers, warnings, findings, err, warn };
+  }
 
   function _checkLocal(state) {
     const sites    = state.sites    || [];
     const devices  = state.devices  || [];
     const links    = state.links    || [];
-    const blockers = [], warnings = [];
+    const { blockers, warnings, findings, err, warn } = _collector();
 
-    if (sites.length === 0) blockers.push('No site exists. Create at least one site.');
+    if (sites.length === 0) err('local.no-site', 'No site exists. Create at least one site.');
 
     const active = state.activeSiteId
       ? sites.find(s => s.id === state.activeSiteId)
@@ -50,14 +72,14 @@
         })
       : links;
 
-    if (inSite.length < 3) blockers.push(`Active site has only ${inSite.length} device(s); need ≥3.`);
-    if (siteLnks.length < 1) blockers.push('No links between devices in the active site.');
+    if (inSite.length < 3) err('local.too-few-devices', `Active site has only ${inSite.length} device(s); need ≥3.`);
+    if (siteLnks.length < 1) err('local.no-links', 'No links between devices in the active site.');
 
     // "Meaningful" = at least one edge/security/core role present.
     const meaningfulTypes = new Set(['firewall','router','l3switch','ids','waf','vpn']);
     const meaningful = inSite.filter(d => meaningfulTypes.has(d.type));
     if (meaningful.length === 0) {
-      blockers.push('Active site has no edge/security/core device (firewall, router, L3 switch, IDS, WAF, or VPN).');
+      err('local.no-edge-device', 'Active site has no edge/security/core device (firewall, router, L3 switch, IDS, WAF, or VPN).');
     }
 
     // Orphan devices in this site (no links at all)
@@ -65,14 +87,14 @@
     siteLnks.forEach(l => { linked.add(l.fromId); linked.add(l.toId); });
     const orphans = inSite.filter(d => !linked.has(d.id));
     if (inSite.length >= 3 && orphans.length === inSite.length) {
-      blockers.push('All devices are unconnected. Wire at least one link.');
+      err('local.all-unconnected', 'All devices are unconnected. Wire at least one link.');
     } else if (orphans.length > 0) {
-      warnings.push(`${orphans.length} device(s) have no links in the active site.`);
+      warn('local.orphan-devices', `${orphans.length} device(s) have no links in the active site.`);
     }
 
     return {
       complete: blockers.length === 0,
-      blockers, warnings,
+      blockers, warnings, findings,
       stats: { sites: sites.length, devicesInActive: inSite.length, linksInActive: siteLnks.length },
       evidence: { activeSiteId: activeId, devicesInActive: inSite, linksInActive: siteLnks },
     };
@@ -83,28 +105,28 @@
     const endpoints = state.endpoints || [];
     const cityLinks = state.cityLinks || [];
     const sites     = state.sites     || [];
-    const blockers = [], warnings = [];
+    const { blockers, warnings, findings, err, warn } = _collector();
 
-    if (cities.length === 0) blockers.push('No city exists. Create at least one city.');
+    if (cities.length === 0) err('city.no-city', 'No city exists. Create at least one city.');
 
     // At least one local site placed on a city map = endpoint with siteId
     const sitePlacements = endpoints.filter(ep => ep.siteId && sites.find(s => s.id === ep.siteId));
     if (sitePlacements.length === 0) {
-      blockers.push('No local site is placed onto any city map. Drag a "Built Site" onto the city.');
+      err('city.site-not-placed', 'No local site is placed onto any city map. Drag a "Built Site" onto the city.');
     }
 
     // At least one pure city-infra endpoint (not just placed sites)
     const infraTypes = new Set(['trafficsignal','trafficcam','vehiclesensor','messagesign','cabinet','streetlight','fiberjunction']);
     const cityInfra = endpoints.filter(ep => infraTypes.has(ep.type));
     if (cityInfra.length === 0) {
-      blockers.push('No city infrastructure endpoint (cabinet, traffic signal, cam, fiber junction, etc.).');
+      err('city.no-endpoint', 'No city infrastructure endpoint (cabinet, traffic signal, cam, fiber junction, etc.).');
     }
 
     // Linked site ↔ city infra: at least one cityLink from a site-placement
     // to a city-infra endpoint counts. If no links exist at all, that's
     // also a blocker.
     if (cityLinks.length === 0 && cities.length > 0 && endpoints.length > 0) {
-      blockers.push('No city link wires the site to any city endpoint.');
+      err('city.no-citylink', 'No city link wires the site to any city endpoint.');
     } else if (sitePlacements.length > 0 && cityInfra.length > 0) {
       const epIdMap = new Map(endpoints.map(ep => [ep.id, ep]));
       const connected = cityLinks.some(cl => {
@@ -116,7 +138,7 @@
         return (aIsSite && bIsInfra) || (bIsSite && aIsInfra);
       });
       if (!connected) {
-        blockers.push('Placed site and city infrastructure are not linked. Connect them with a city link.');
+        err('city.site-unlinked', 'Placed site and city infrastructure are not linked. Connect them with a city link.');
       }
     }
 
@@ -125,12 +147,12 @@
     cityLinks.forEach(cl => { linkedEps.add(cl.fromEpId); linkedEps.add(cl.toEpId); });
     const orphans = endpoints.filter(ep => !linkedEps.has(ep.id));
     if (orphans.length > 0 && endpoints.length > 1) {
-      warnings.push(`${orphans.length} city endpoint(s) have no links.`);
+      warn('city.orphan-endpoints', `${orphans.length} city endpoint(s) have no links.`);
     }
 
     return {
       complete: blockers.length === 0,
-      blockers, warnings,
+      blockers, warnings, findings,
       stats: { cities: cities.length, endpoints: endpoints.length, cityLinks: cityLinks.length, sitePlacements: sitePlacements.length },
       evidence: { sitePlacements, cityInfra, cityLinks },
     };
@@ -142,7 +164,7 @@
     const planetInfra = state.planetInfra || [];
     const cities      = state.cities      || [];
     const endpoints   = state.endpoints   || [];
-    const blockers = [], warnings = [];
+    const { blockers, warnings, findings, err, warn } = _collector();
 
     // At least one city/local site represented at planet scale.
     // A site by definition exists at planet scale (it has lat/lng).
@@ -150,13 +172,13 @@
     const cityHasSite = endpoints.some(ep => ep.siteId);
     const planetRepresentation = sites.length + (cityHasSite ? 1 : 0);
     if (planetRepresentation < 1) {
-      blockers.push('No site is represented at planet scale.');
+      err('planet.no-sites', 'No site is represented at planet scale.');
     }
 
     // At least two planet-scale nodes OR one site + one global infra unit.
     const planetNodes = sites.length + planetInfra.length;
     if (!(planetNodes >= 2 || (sites.length >= 1 && planetInfra.length >= 1))) {
-      blockers.push(`Need ≥2 planet-scale nodes (sites or global infra); have ${planetNodes}.`);
+      err('planet.too-few-nodes', `Need ≥2 planet-scale nodes (sites or global infra); have ${planetNodes}.`);
     }
 
     // Valid inter-site link OR site-to-global-infra link.
@@ -168,22 +190,22 @@
     if (!hasValidLink && sites.length >= 1 && planetInfra.length >= 1) {
       const near = sites.some(s => planetInfra.some(i => _haversineKm(s, i) < 500));
       if (near) {
-        warnings.push('Global infra is near a site but no explicit site link exists.');
+        warn('planet.infra-near-unlinked', 'Global infra is near a site but no explicit site link exists.');
       } else {
-        blockers.push('No inter-site link and no site-to-global-infra connection.');
+        err('planet.no-links', 'No inter-site link and no site-to-global-infra connection.');
       }
     } else if (!hasValidLink) {
-      blockers.push('No inter-site or site-to-global-infra link exists.');
+      err('planet.no-links', 'No inter-site or site-to-global-infra link exists.');
     }
 
     // Orphan siteLinks
     const siteIds = new Set(sites.map(s => s.id));
     const orphanSL = siteLinks.filter(sl => !siteIds.has(sl.fromSiteId) || !siteIds.has(sl.toSiteId));
-    if (orphanSL.length) warnings.push(`${orphanSL.length} site link(s) reference deleted sites.`);
+    if (orphanSL.length) warn('planet.orphan-sitelinks', `${orphanSL.length} site link(s) reference deleted sites.`);
 
     return {
       complete: blockers.length === 0,
-      blockers, warnings,
+      blockers, warnings, findings,
       stats: { sites: sites.length, siteLinks: siteLinks.length, planetInfra: planetInfra.length, cities: cities.length },
       evidence: { sites, siteLinks, planetInfra },
     };
@@ -193,22 +215,22 @@
     const assets      = state.spaceAssets  || [];
     const links       = state.spaceLinks   || [];
     const planetInfra = state.planetInfra  || [];
-    const blockers = [], warnings = [];
+    const { blockers, warnings, findings, err, warn } = _collector();
 
     const ground = assets.filter(a => a.type === 'ground_station');
     const uplinkInfra = planetInfra.filter(p => p.type === 'ground_uplink');
     const hasGround = ground.length >= 1 || uplinkInfra.length >= 1;
     if (!hasGround) {
-      blockers.push('No ground station or satellite uplink (planet or orbit) to bridge to space.');
+      err('orbit.no-ground', 'No ground station or satellite uplink (planet or orbit) to bridge to space.');
     }
 
     const orbiters = assets.filter(a => a.type !== 'ground_station');
-    if (orbiters.length < 1) blockers.push('No orbital asset placed.');
+    if (orbiters.length < 1) err('orbit.no-orbiter', 'No orbital asset placed.');
 
     const uplinkTypes = new Set(['uplink','downlink','feeder']);
     const upLinks = links.filter(l => uplinkTypes.has(l.type));
     if (upLinks.length < 1) {
-      blockers.push('No uplink/downlink/feeder link between ground and orbit.');
+      err('orbit.no-uplink', 'No uplink/downlink/feeder link between ground and orbit.');
     } else {
       // Validate that the uplinks actually touch a ground station on one side
       // and a non-ground asset on the other.
@@ -220,7 +242,7 @@
         return (aG && !bG) || (bG && !aG);
       });
       if (!validUplink && ground.length >= 1) {
-        warnings.push('Uplink/downlink links exist but don\'t actually connect ground↔orbit.');
+        warn('orbit.uplink-not-crossing', 'Uplink/downlink links exist but don\'t actually connect ground↔orbit.');
       }
     }
 
@@ -229,12 +251,12 @@
     links.forEach(l => { linkedIds.add(l.fromAssetId); linkedIds.add(l.toAssetId); });
     const orphans = assets.filter(a => !linkedIds.has(a.id));
     if (orphans.length > 0 && assets.length > 1) {
-      warnings.push(`${orphans.length} orbital asset(s) have no links.`);
+      warn('orbit.orphan-assets', `${orphans.length} orbital asset(s) have no links.`);
     }
 
     return {
       complete: blockers.length === 0,
-      blockers, warnings,
+      blockers, warnings, findings,
       stats: { assets: assets.length, links: links.length, ground: ground.length, orbiters: orbiters.length, uplinks: upLinks.length },
       evidence: { ground, orbiters, upLinks, uplinkInfra },
     };
@@ -244,9 +266,9 @@
     const units = state.deepSpaceUnits || [];
     const dsLinks = state.deepSpaceLinks || [];
     const orbitAssets = state.spaceAssets || [];
-    const blockers = [], warnings = [];
+    const { blockers, warnings, findings, err, warn } = _collector();
 
-    if (units.length < 1) blockers.push('No deep-space unit placed.');
+    if (units.length < 1) err('deepspace.no-unit', 'No deep-space unit placed.');
 
     // Need at least one connection to orbit/ground (handoff). The handoff
     // is recorded either as a deepSpaceLink whose `toId` points at an orbit
@@ -268,9 +290,9 @@
 
     if (units.length >= 1 && !hasHandoff) {
       if (anchored && internalLinks.length >= 1 && orbitEv && orbitEv.evidence && orbitEv.evidence.ground.length >= 1) {
-        warnings.push('No explicit DS↔orbit handoff link; using anchored+internal as implicit path.');
+        warn('deepspace.implicit-handoff', 'No explicit DS↔orbit handoff link; using anchored+internal as implicit path.');
       } else {
-        blockers.push('No handoff: connect at least one deep-space unit back to a ground station or orbital asset.');
+        err('deepspace.no-handoff', 'No handoff: connect at least one deep-space unit back to a ground station or orbital asset.');
       }
     }
 
@@ -279,12 +301,12 @@
     dsLinks.forEach(l => { linkedDsIds.add(l.fromId); linkedDsIds.add(l.toId); });
     const orphans = units.filter(u => !linkedDsIds.has(u.id) && !u.anchor);
     if (orphans.length > 0) {
-      warnings.push(`${orphans.length} deep-space unit(s) are orphaned (no anchor, no link).`);
+      warn('deepspace.orphan-units', `${orphans.length} deep-space unit(s) are orphaned (no anchor, no link).`);
     }
 
     return {
       complete: blockers.length === 0,
-      blockers, warnings,
+      blockers, warnings, findings,
       stats: { units: units.length, links: dsLinks.length, handoffs: hasHandoff ? 1 : 0, anchored: units.filter(u => u.anchor).length },
       evidence: { units, dsLinks, hasHandoff, anchored, internalLinks },
     };
@@ -483,17 +505,41 @@
     const recommendations = _recommendations(sectionEv, paths);
 
     const sectionStatus = {};
+    const findings = [];
     for (const sec of ['local','city','planet','orbit','deepspace']) {
       sectionStatus[sec] = {
         complete: sectionEv[sec].complete,
         warnings: sectionEv[sec].warnings,
         blockers: sectionEv[sec].blockers,
+        findings: sectionEv[sec].findings,
         recommendations: _sectionRecommendations(sec, sectionEv, state),
         stats:    sectionEv[sec].stats,
       };
+      for (const f of sectionEv[sec].findings) {
+        findings.push({ code: f.code, severity: f.severity, msg: f.msg, section: sec });
+      }
     }
 
     const fullPathExists = !!paths.find(p => p.kind === 'main' && p.complete);
+
+    // Global-scope findings: cross-layer conditions that don't belong to a
+    // single section's blockers/warnings.
+    for (const o of orphanedObjects) {
+      findings.push({
+        code: 'global.orphaned-object',
+        severity: 'warn',
+        msg: `Orphan ${o.kind} "${o.label}" in ${o.layer} layer.`,
+        section: 'global',
+      });
+    }
+    if (!fullPathExists) {
+      findings.push({
+        code: 'global.no-full-path',
+        severity: 'warn',
+        msg: 'No proven Local→Deep Space path. Finish each layer and connect them across.',
+        section: 'global',
+      });
+    }
 
     return {
       complete: ['local','city','planet','orbit','deepspace'].every(s => sectionStatus[s].complete),
@@ -502,6 +548,7 @@
       paths,
       orphanedObjects,
       recommendations,
+      findings,
     };
   }
 

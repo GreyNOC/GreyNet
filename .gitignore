@@ -1,7 +1,14 @@
 # === Node / build output ===
 node_modules/
 dist/
-build/
+# build/* (not build/) so the icon sources below can be un-ignored — git
+# cannot re-include files under an excluded DIRECTORY. The app icon lives in
+# build/ (electron-builder's buildResources dir) and must ship with the repo:
+# package.json win.icon and main.js's dev window icon reference it.
+build/*
+!build/icon.svg
+!build/icon.png
+!build/icon.ico
 out/
 *.tsbuildinfo
 # Generated SBOM (produced in CI / `npm run sbom`, uploaded as an artifact)

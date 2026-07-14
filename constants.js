@@ -425,3 +425,22 @@ const SEVERITY = {
   low:      { rank: 3, color: '#5fb3ff', label: 'LOW',      weight: 4  },
   info:     { rank: 4, color: '#8a95a4', label: 'INFO',     weight: 1  },
 };
+
+// === Module exports ===
+// Top-level `const`s in a classic (non-module) script do NOT become window
+// properties, so the helper modules (validator/fixit/orbit-metrics/
+// deepspace-mesh/planet-metrics) historically read them via a `new Function`
+// global-scope shim. That shim is EVAL and the app's CSP forbids `unsafe-eval`
+// — so in the packaged/CSP'd app every such lookup silently returned null
+// (e.g. Fix-it created an unanchored relay while claiming "anchored to Mars").
+// Attaching the tables to `window` explicitly is the CSP-safe fix; `_g()` in
+// those modules now reads window first and only falls back to the shim.
+if (typeof window !== 'undefined') {
+  Object.assign(window, {
+    DEVICE_TYPES, LINK_TYPES, ZONE_TYPES, SITE_TYPES, SITE_LINK_TYPES,
+    ENDPOINT_TYPES, CITY_LINK_TYPES, CITY_BACKENDS, ORBIT_ALTITUDES,
+    SPACE_ASSET_TYPES, SPACE_LINK_TYPES, PLANET_INFRA_TYPES,
+    DEEP_SPACE_UNIT_TYPES, DEEP_SPACE_LINK_TYPES,
+    MAJOR_CITY_COUNTRIES, COST_CATALOG, SEVERITY,
+  });
+}
