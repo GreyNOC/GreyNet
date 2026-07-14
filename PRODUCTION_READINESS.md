@@ -205,10 +205,11 @@ as known follow-ups:
   `@electron/rebuild`. On a machine without MSVC build tools, this can
   fail. Verified working on Windows 11 with the standard Electron
   toolchain at v42.3.0.
-- **Browser preview screenshot occasionally times out** when the deep
-  space SVG layer is in heavy render. This affects only the test
-  preview, not the packaged app. Functional verification via DOM
-  queries / Playwright is reliable.
+- ~~**Browser preview screenshot occasionally times out**~~ — root-caused
+  in v0.7.1: the background grid was a fixed 20,000×20,000 pattern-filled
+  rect (~400-megapixel raster surface) that stalled compositor readback.
+  The grid is now sized to the visible viewport (`updateGridBounds()` in
+  app.js); all five views screenshot in <200 ms under Playwright.
 
 ## Acceptance check (v0.6)
 

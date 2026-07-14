@@ -119,21 +119,42 @@ function restoreSnapshot(s) {
   state.selectedIds.clear();
 }
 function pushHistory() {
-  history.past.push(snapshot());
+  const s = snapshot();
+  // Skip no-op pushes (e.g. a plain selection click that never dragged):
+  // they flood the stack with identical entries and evict real edits.
+  if (history.past.length && history.past[history.past.length - 1] === s) {
+    history.future.length = 0;
+    return;
+  }
+  history.past.push(s);
   if (history.past.length > history.max) history.past.shift();
   history.future.length = 0;
 }
+// Restoring a snapshot can change viewMode / activeSiteId / activeCityId —
+// the body/svg mode classes, palette, toolbar buttons and tile map must
+// follow, or clicks dispatch on a view the user isn't looking at. The
+// per-mode viewport must swap too (setViewMode's save/restore half), or the
+// restored mode renders with the previous mode's pan/zoom and later poisons
+// that mode's saved viewport.
+// Both helpers are defined in app.js (loaded after this file).
+function _afterHistoryRestore(prevMode) {
+  if (typeof adoptViewportAfterRestore === 'function') adoptViewportAfterRestore(prevMode);
+  if (typeof syncViewChromeToState === 'function') syncViewChromeToState();
+  renderAll();
+}
 function undo() {
   if (!history.past.length) return;
+  const prevMode = state.viewMode;
   history.future.push(snapshot());
   restoreSnapshot(history.past.pop());
-  renderAll();
+  _afterHistoryRestore(prevMode);
 }
 function redo() {
   if (!history.future.length) return;
+  const prevMode = state.viewMode;
   history.past.push(snapshot());
   restoreSnapshot(history.future.pop());
-  renderAll();
+  _afterHistoryRestore(prevMode);
 }
 
 
@@ -168,7 +189,6 @@ const dom = {
   cityImageBtn:    document.getElementById('city-image-btn'),
   cityImageInput:  document.getElementById('city-image-input'),
   cityOnlineHint:  document.getElementById('city-online-hint'),
-  viewToggleBtn: document.getElementById('view-toggle-btn'),
   emptyState:    document.getElementById('empty-state'),
   emptyStateTitle: document.getElementById('empty-state-title'),
   emptyStateMsg: document.getElementById('empty-state-msg'),

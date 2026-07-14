@@ -272,9 +272,14 @@ test.describe('GreyNet — orbit metrics', () => {
   test('orbitLinkSummary returns distance, latency, altitude', async ({ page }) => {
     await freshLoad(page);
     const r = await page.evaluate(() => {
+      // Geometry note: metrics use the same inclined-orbit frame the canvas
+      // draws (LEO: inc 53°, RAAN −40°). The LEO ring crosses the screen
+      // plane (z=0) at orbit angle π − 40°·π/180 ≈ 2.443; a ground station
+      // at rim angle π sits directly beneath that point, so the uplink is
+      // genuinely above the horizon.
       state.spaceAssets = [
-        { id:'gs1', type:'ground_station', label:'GS', x:240, y:0, angle:0, orbit:'ground' },
-        { id:'sat1', type:'satellite_leo', label:'LEO', angle:0.3, orbit:'leo' },
+        { id:'gs1', type:'ground_station', label:'GS', x:-240, y:0, angle:Math.PI, orbit:'ground' },
+        { id:'sat1', type:'satellite_leo', label:'LEO', angle:2.443, orbit:'leo' },
       ];
       state.spaceLinks = [{ id:'l1', fromAssetId:'gs1', toAssetId:'sat1', type:'uplink', label:'' }];
       return orbitLinkSummary('l1', state);
@@ -284,6 +289,26 @@ test.describe('GreyNet — orbit metrics', () => {
     expect(r.fromAltitude).toBe('Ground');
     expect(r.toAltitude).toMatch(/LEO/);
     expect(r.valid).toBe(true);
+  });
+
+  test('orbit metrics agree between panel math and validator (no dual-model drift)', async ({ page }) => {
+    await freshLoad(page);
+    const r = await page.evaluate(() => {
+      state.spaceAssets = [
+        { id:'gs1', type:'ground_station', label:'GS', angle:0, orbit:'ground' },
+        { id:'sat1', type:'satellite_leo', label:'LEO', angle:0.3, orbit:'leo' },
+      ];
+      state.spaceLinks = [{ id:'l1', fromAssetId:'gs1', toAssetId:'sat1', type:'uplink', label:'' }];
+      const a = state.spaceAssets[0], b = state.spaceAssets[1];
+      const panel = spaceLinkMetrics(a, b);
+      const summary = orbitLinkSummary('l1', state);
+      return {
+        panelDist: panel.distanceKm, summaryDist: summary.distanceKm,
+        panelOcc: panel.occulted, summaryOcc: summary.occluded,
+      };
+    });
+    expect(r.summaryDist).toBeCloseTo(r.panelDist, 6);
+    expect(r.summaryOcc).toBe(r.panelOcc);
   });
 
   test('orbitValidate flags uplink that does not touch ground', async ({ page }) => {

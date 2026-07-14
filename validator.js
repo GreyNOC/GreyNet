@@ -267,7 +267,7 @@
     const internalLinks = dsLinks.filter(l => dsIds.has(l.fromId) && dsIds.has(l.toId));
 
     if (units.length >= 1 && !hasHandoff) {
-      if (anchored && internalLinks.length >= 1 && orbitEv && orbitEv.ground && orbitEv.ground.length >= 1) {
+      if (anchored && internalLinks.length >= 1 && orbitEv && orbitEv.evidence && orbitEv.evidence.ground.length >= 1) {
         warnings.push('No explicit DS↔orbit handoff link; using anchored+internal as implicit path.');
       } else {
         blockers.push('No handoff: connect at least one deep-space unit back to a ground station or orbital asset.');

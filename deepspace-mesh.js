@@ -12,7 +12,10 @@
      dsUnitMetrics(unit, state)  — latency/range/risk for a single unit
      dsLinkMetrics(link, state)  — distance/latency/path estimate
      dsPathBackToHome(unitId, state)
-                                 — bfs hops back to local/planet/orbit
+                                 — bfs hops back to local/planet/orbit;
+                                   also hopNodes/linkIds/totalLatencySec
+                                   for route highlighting in the UI
+     dsFormatLightTime(sec)      — humanize a light-time (s / min / h)
      dsExportMissionSummary(state)
                                  — { units, links, paths, risks } object
      renderDeepSpaceMeshPanel(rootEl, state)
@@ -45,8 +48,15 @@
     if (!tgts || !tgts[unit.anchor]) return null;
     const t = tgts[unit.anchor];
     if (t.kind === 'planet' && Number.isFinite(t.a)) return t.a;
-    if (t.kind === 'satellite' && t.distKm) return t.distKm / 149_597_870.7;
-    if (t.kind === 'spacecraft' && t.distKm) return t.distKm / 149_597_870.7;
+    if ((t.kind === 'satellite' || t.kind === 'spacecraft') && t.distKm) {
+      // distKm is measured from t.parent, not the Sun. For planet-parented
+      // bodies (Moon, JWST) offset from the parent's heliocentric distance so
+      // the 1-D model keeps them near their host; Sun-parented craft
+      // (parent:'sun') are already heliocentric.
+      const parent = t.parent && tgts[t.parent];
+      const parentAU = (parent && Number.isFinite(parent.a)) ? parent.a : 0;
+      return parentAU + t.distKm / 149_597_870.7;
+    }
     return null;
   }
 
@@ -147,9 +157,15 @@
     const planetSites = state.sites || [];
 
     // BFS over DS units → cross-domain link → orbit asset → ground_station
-    // → planet site (any).
+    // → planet site (any). Each queue entry carries the id chain walked so
+    // far plus the DS-link ids traversed (equivalent to parent pointers, but
+    // matching this file's path-carrying style) so the winning route can be
+    // replayed by the UI without a second search.
     const visited = new Set([unitId]);
-    const queue = [{ id: unitId, hops: [unitId] }];
+    const queue = [{ id: unitId, hops: [unitId], links: [] }];
+    // Best fallback if nothing reaches the ground: the first orbit asset we
+    // could hand off to.
+    let orbitFallback = null;
     while (queue.length) {
       const cur = queue.shift();
       // DS links from cur
@@ -160,26 +176,114 @@
         if (!nextId || visited.has(nextId)) continue;
         visited.add(nextId);
         const path = cur.hops.concat([nextId]);
+        const linkTrail = cur.links.concat([l.id]);
         // Hit orbit asset?
         const orbit = orbitAssets.find(a => a.id === nextId);
         if (orbit) {
           if (orbit.type === 'ground_station') {
             // Ground stations are at the planet boundary → consider it
             // reaching planet too.
-            return { reached: 'planet', hops: path, terminus: orbit };
+            return _enrichPath({ reached: 'planet', hops: path, terminus: orbit }, linkTrail, state);
           }
           // Need to walk orbit further to find a ground station.
           const orbReach = _orbitToGround(orbit.id, orbitAssets, orbitLinks, new Set([orbit.id]));
           if (orbReach) {
-            return { reached: 'planet', hops: path.concat(orbReach.hops.slice(1)), terminus: orbReach.terminus };
+            return _enrichPath({ reached: 'planet', hops: path.concat(orbReach.hops.slice(1)), terminus: orbReach.terminus }, linkTrail, state);
           }
-          return { reached: 'orbit', hops: path, terminus: orbit };
+          // This asset can't reach the ground — remember it as a fallback but
+          // keep exploring; another route may still get all the way down.
+          if (!orbitFallback) orbitFallback = _enrichPath({ reached: 'orbit', hops: path, terminus: orbit }, linkTrail, state);
+          continue;
         }
-        queue.push({ id: nextId, hops: path });
+        queue.push({ id: nextId, hops: path, links: linkTrail });
       }
     }
+    // No ground path anywhere — an orbit handoff is the next best outcome.
+    if (orbitFallback) return orbitFallback;
     // No reach
-    return { reached: 'none', hops: [unitId], terminus: null };
+    return _enrichPath({ reached: 'none', hops: [unitId], terminus: null }, [], state);
+  }
+
+  // Decorate a raw BFS result with route data rich enough for the UI to draw
+  // a highlighted path with a cumulative light-time. Adds:
+  //   hopNodes        — [{ id, kind: 'unit'|'orbit-asset', label }] for every
+  //                     id in `hops`, in order, including the terminal orbit
+  //                     asset(s) when the path exits through orbit. (`hops`
+  //                     itself stays an array of raw id strings — existing
+  //                     callers and tests depend on that shape.)
+  //   linkIds         — ordered DS-link ids traversed, so the UI can
+  //                     highlight exactly those link elements. Orbit→ground
+  //                     legs ride orbit links (drawn in the Orbit view), so
+  //                     they are not listed here.
+  //   totalLatencySec — cumulative one-way light time: unit→unit hops use
+  //                     the same per-link model as dsLinkMetrics (anchor-AU
+  //                     difference / c), and the final unit→orbit handoff
+  //                     bills |last unit AU − Earth AU| / c (that leg IS the
+  //                     interplanetary jump when the unit is anchored to
+  //                     another body). Orbit→ground legs add nothing —
+  //                     near-Earth latencies (ms–s) are negligible at
+  //                     deep-space scale. null when no path exists at all.
+  function _enrichPath(result, linkIds, state) {
+    const dsUnits = state.deepSpaceUnits || [];
+    const dsLinks = state.deepSpaceLinks || [];
+    const orbitAssets = state.spaceAssets || [];
+
+    const hopNodes = result.hops.map(id => {
+      const u = dsUnits.find(x => x.id === id);
+      if (u) {
+        const def = _typeDef(u.type);
+        return { id, kind: 'unit', label: u.label || (def ? def.label : u.type) };
+      }
+      const a = orbitAssets.find(x => x.id === id);
+      return { id, kind: 'orbit-asset', label: a ? (a.label || a.id) : id };
+    });
+
+    let totalLatencySec = null;
+    if (result.reached !== 'none') {
+      totalLatencySec = 0;
+      // DS hops occupy the first linkIds.length steps of the chain (orbit
+      // assets are terminal in the DS BFS), so linkIds[i] is the link for
+      // hop i → i+1.
+      for (let i = 0; i < hopNodes.length - 1; i++) {
+        if (hopNodes[i].kind !== 'unit' || hopNodes[i + 1].kind !== 'unit') continue;
+        const link = dsLinks.find(l => l.id === linkIds[i]);
+        if (!link) continue;
+        const m = dsLinkMetrics(link, state);
+        // Hops with unknown range (un-anchored endpoint) contribute nothing —
+        // there is no basis for a light-time estimate.
+        if (m && Number.isFinite(m.oneWayLatencySec)) totalLatencySec += m.oneWayLatencySec;
+      }
+      // The handoff leg (last unit → orbit asset) is only "near-Earth" when
+      // that unit is anchored near Earth. For the canonical topology — a
+      // Mars-anchored relay linked straight to a DSN ground station — the
+      // handoff IS the interplanetary jump, so bill it with the same 1-D
+      // model: |unit AU − Earth AU| / c. Earth-anchored units add ≈0.
+      const firstOrbitIdx = hopNodes.findIndex(h => h.kind === 'orbit-asset');
+      if (firstOrbitIdx > 0) {
+        const lastUnit = dsUnits.find(x => x.id === hopNodes[firstOrbitIdx - 1].id);
+        const au = lastUnit ? _au(lastUnit, state) : null;
+        if (au != null && Number.isFinite(au)) {
+          const tgts = _g('DS_TARGETS');
+          const earthAU = (tgts && tgts.earth && Number.isFinite(tgts.earth.a)) ? tgts.earth.a : 1.0;
+          totalLatencySec += Math.abs(au - earthAU) * 149_597_870.7 / C_KMS;
+        }
+      }
+    }
+
+    result.hopNodes = hopNodes;
+    result.linkIds = linkIds;
+    result.totalLatencySec = totalLatencySec;
+    return result;
+  }
+
+  // Humanize a light-time in seconds: seconds under 120 s, minutes under
+  // 120 min, hours beyond.
+  function dsFormatLightTime(sec) {
+    if (sec == null || !Number.isFinite(sec)) return '—';
+    if (sec < 120) return sec.toFixed(1) + ' s';
+    const min = sec / 60;
+    if (min < 120) return min.toFixed(1) + ' min';
+    return (sec / 3600).toFixed(1) + ' h';
   }
 
   function _orbitToGround(startId, assets, links, visited) {
@@ -231,8 +335,17 @@
     return {
       generatedAt: new Date().toISOString(),
       summary: dsMeshSummary(state),
-      units: units.map(u => Object.assign({ id: u.id }, dsUnitMetrics(u, state),
-                                          { path: dsPathBackToHome(u.id, state) })),
+      units: units.map(u => {
+        // `path` now carries hopNodes/linkIds/totalLatencySec; mirror the
+        // cumulative light-time at the top level so consumers get the total
+        // without digging into the path object.
+        const path = dsPathBackToHome(u.id, state);
+        return Object.assign({ id: u.id }, dsUnitMetrics(u, state), {
+          path,
+          homeLatencySec: path.totalLatencySec,
+          homeLatencyLabel: dsFormatLightTime(path.totalLatencySec),
+        });
+      }),
       links: links.map(l => Object.assign({ id: l.id }, dsLinkMetrics(l, state))),
     };
   }
@@ -257,10 +370,13 @@
             : m.oneWayLatencySec.toFixed(1) + ' s')
         : '—';
       const rng = m.estRangeAU != null ? m.estRangeAU.toFixed(2) + ' AU' : '—';
+      // Cumulative light-time home — only meaningful when a route exists.
+      const homeLt = reached !== 'none' ? dsFormatLightTime(path.totalLatencySec) : '—';
       return `<tr>
         <td><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${dot};margin-right:6px"></span>${esc(m.label)}</td>
         <td>${esc(u.anchor || '—')}</td>
         <td>${esc(lat)}</td>
+        <td>${esc(homeLt)}</td>
         <td>${esc(rng)}</td>
         <td>${esc(m.health)}</td>
         <td>${esc(reached)}</td>
@@ -300,11 +416,12 @@
             <th style="padding:6px">Unit</th>
             <th style="padding:6px">Anchor</th>
             <th style="padding:6px">Latency</th>
+            <th style="padding:6px">Home light-time</th>
             <th style="padding:6px">Range</th>
             <th style="padding:6px">Health</th>
             <th style="padding:6px">Reaches</th>
           </tr></thead>
-          <tbody>${unitRows || '<tr><td colspan="6" style="padding:8px;color:#64748b">No deep-space units placed.</td></tr>'}</tbody>
+          <tbody>${unitRows || '<tr><td colspan="7" style="padding:8px;color:#64748b">No deep-space units placed.</td></tr>'}</tbody>
         </table>
       </div>
       <div style="margin-top:10px;overflow:auto;max-height:200px;border:1px solid #1f2937;border-radius:6px">
@@ -342,6 +459,7 @@
   root.dsUnitMetrics = dsUnitMetrics;
   root.dsLinkMetrics = dsLinkMetrics;
   root.dsPathBackToHome = dsPathBackToHome;
+  root.dsFormatLightTime = dsFormatLightTime;
   root.dsExportMissionSummary = dsExportMissionSummary;
   root.renderDeepSpaceMeshPanel = renderDeepSpaceMeshPanel;
 

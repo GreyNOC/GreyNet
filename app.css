@@ -140,7 +140,11 @@
   }
 
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden;
+  html, body { margin: 0; padding: 0; height: 100%;
+    /* clip, not hidden: hidden still allows programmatic/focus scrolling,
+       which shifted the whole app sideways when a partially-clipped toolbar
+       button received focus. */
+    overflow: clip;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Ubuntu, sans-serif;
     background: var(--bg-0); color: var(--text); font-size: 13px; }
   button, input, select, textarea { font: inherit; color: inherit; }
@@ -175,7 +179,13 @@
   .toolbar { grid-area: tb; background: var(--glass-bar);
     -webkit-backdrop-filter: blur(12px) saturate(112%); backdrop-filter: blur(12px) saturate(112%);
     border-bottom: 1px solid var(--border); box-shadow: var(--glass-hairline);
-    display: flex; align-items: center; padding: 0 var(--space-3); gap: var(--space-1); }
+    display: flex; align-items: center; padding: 0 var(--space-3); gap: var(--space-1);
+    /* Never let toolbar controls become unreachable: densify via the media
+       queries below first, and if the window is still too narrow, scroll
+       horizontally instead of clipping the Scan/AI/Settings group. */
+    overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+  .toolbar::-webkit-scrollbar { display: none; }
+  .toolbar > * { flex-shrink: 0; }
   .palette  { grid-area: pl; background: var(--glass-panel);
     -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(108%); backdrop-filter: blur(var(--glass-blur)) saturate(108%);
     border-right: 1px solid var(--border); overflow-y: auto;
@@ -201,7 +211,7 @@
   .tb-btn { background: transparent; border: 1px solid transparent;
     color: var(--text-dim); padding: 4px 10px; border-radius: var(--radius-2);
     display: flex; align-items: center; gap: 5px; height: 26px;
-    font-size: 12px;
+    font-size: 12px; white-space: nowrap;
     transition: background var(--dur-1) var(--ease-out),
                 border-color var(--dur-1) var(--ease-out),
                 color var(--dur-1) var(--ease-out); }
@@ -221,6 +231,29 @@
     text-transform: uppercase; letter-spacing: 0.6px; margin-right: 6px; }
   .tb-mode-pill.connect { background: color-mix(in srgb, var(--accent) 18%, transparent); color: var(--accent); }
   .tb-mode-pill.zone { background: color-mix(in srgb, var(--z-dmz) 18%, transparent); color: var(--z-dmz); }
+
+  /* Responsive densification: the full toolbar (worst case: Local/Planet
+     views, where Grid/Snap/Live are visible) needs ~1650px. Shed the
+     lowest-value chrome first so every actual control stays on screen at the
+     1440px default window and down to ~1200px; below that the toolbar's
+     overflow-x scroll is the final safety net. */
+  @media (max-width: 1700px) {
+    .tb-title .dim { display: none; }
+  }
+  @media (max-width: 1560px) {
+    .tb-btn .kbd { display: none; }
+    .tb-mode-pill { display: none; }
+    .tb-btn { padding: 4px 7px; }
+    .tb-group { padding: 0 2px; }
+    .tb-title { margin-right: var(--space-1); }
+    .toolbar { gap: 2px; padding: 0 var(--space-2); }
+  }
+  @media (max-width: 1360px) {
+    .tb-btn { padding: 4px 5px; gap: 3px; }
+    .toolbar { padding: 0 var(--space-2); }
+    /* The product name also lives in the window title bar — controls win. */
+    .tb-title { display: none; }
+  }
 
   /* === PALETTE === */
   .pal-section { border-bottom: 1px solid var(--border); }
@@ -359,9 +392,14 @@
     border: 1px solid var(--border-2);
     border-radius: var(--radius-2); max-height: 200px; overflow: hidden;
     display: flex; flex-direction: column; box-shadow: var(--elev-3), var(--glass-hairline);
+    /* Above .tile-map (5) and .orbit-legend (6): validation findings must
+       never paint beneath the city map. */
+    z-index: 7;
     animation: tray-rise var(--dur-3) var(--ease-out); }
   .warnings-tray.hidden { display: none; }
   .warnings-tray.collapsed .warnings-body { display: none; }
+  #warnings-chev { display: inline-block; transition: transform var(--dur-2) var(--ease-out); }
+  .warnings-tray.collapsed #warnings-chev { transform: rotate(-90deg); }
   .warnings-header { padding: var(--space-2) var(--space-3); background: transparent;
     border-bottom: 1px solid var(--border);
     display: flex; align-items: center; gap: var(--space-2); cursor: pointer; user-select: none; font-size: 11px; }
@@ -429,7 +467,9 @@
 
   /* === DROPDOWN === */
   .tb-dropdown { position: relative; display: inline-block; }
-  .tb-dropdown-menu { position: absolute; top: 100%; left: 0; margin-top: 6px;
+  /* position: fixed (coords set by toggleExportMenu) — an absolute child
+     would be clipped to the 44px bar by the toolbar's overflow-x scroll. */
+  .tb-dropdown-menu { position: fixed;
     background: var(--glass-float);
     -webkit-backdrop-filter: blur(var(--glass-blur-sm)) saturate(115%); backdrop-filter: blur(var(--glass-blur-sm)) saturate(115%);
     border: 1px solid var(--border-2); border-radius: var(--radius-2);
@@ -503,7 +543,13 @@
     padding: 6px var(--space-3); background: var(--glass-bar);
     -webkit-backdrop-filter: blur(12px) saturate(112%); backdrop-filter: blur(12px) saturate(112%);
     border-bottom: 1px solid var(--border);
-    font-size: 11px; flex-shrink: 0; }
+    font-size: 11px; flex-shrink: 0; min-width: 0; }
+  /* Controls keep their natural size; only the trailing hint gives way
+     (ellipsis) — otherwise a crowded city bar crushes its buttons into
+     multi-line 50px blobs. */
+  .site-bar > * { flex-shrink: 0; }
+  .site-bar .city-bar-controls { align-items: center; gap: var(--space-2); }
+  .site-bar .city-bar-controls > * { white-space: nowrap; }
   .sb-crumb { color: var(--text-dim); display: flex; align-items: center; gap: var(--space-2); font-size: 11px; }
   /* Scope pill = the active-layer identity badge; it carries the live --accent. */
   .sb-scope { font-size: 9.5px; font-weight: 700; letter-spacing: 1px;
@@ -536,10 +582,10 @@
   .sb-switch-menu .sb-action { padding: 6px var(--space-3); color: var(--accent);
     font-size: 11px; cursor: pointer; }
   .sb-switch-menu .sb-action:hover { background: var(--bg-3); }
-  .sb-flex { flex: 1; }
-  .sb-mode-hint { color: var(--text-faint); font-size: 10.5px; }
-  #view-toggle-btn { font-weight: 600; }
-  #view-toggle-btn.world-active { background: var(--accent); color: var(--bg-0); border-color: var(--accent); }
+  .sb-flex { flex: 1 1 0; min-width: 0; }
+  .sb-mode-hint { color: var(--text-faint); font-size: 10.5px;
+    flex: 0 1 auto; min-width: 0; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
   .canvas-wrap > svg { flex: 1; }
 
   /* === WORLD MAP === */
@@ -549,7 +595,8 @@
   #canvas.world-mode #devices-layer { display: none; }
   #canvas:not(.world-mode) #worldmap-layer,
   #canvas:not(.world-mode) #sites-layer,
-  #canvas:not(.world-mode) #sitelinks-layer { display: none; }
+  #canvas:not(.world-mode) #sitelinks-layer,
+  #canvas:not(.world-mode) #planetinfra-layer { display: none; }
   #canvas.world-mode { cursor: default; }
   #canvas.world-mode.place-site { cursor: cell; }
 
@@ -841,7 +888,9 @@
   #canvas.deepspace-mode #spacelinks-layer,
   #canvas.deepspace-mode #spaceassets-layer { display: none; }
   #canvas:not(.deepspace-mode) #deepspace-layer,
-  #canvas:not(.deepspace-mode) #deepspace-link-layer { display: none; }
+  #canvas:not(.deepspace-mode) #deepspace-link-layer,
+  #canvas:not(.deepspace-mode) #deepspace-units-layer,
+  #canvas:not(.deepspace-mode) #deepspace-unitlinks-layer { display: none; }
   /* Deep Space keeps a (narrow) palette so the Deep-Space Units the walkthrough
      asks you to place are actually reachable; the studio takes the right rail. */
   body.deepspace-mode #app { grid-template-columns: 200px 1fr 380px; }
@@ -999,6 +1048,92 @@
     letter-spacing: 1px; font-size: 9px; margin-bottom: 2px; }
   .orbit-legend span { display: flex; align-items: center; gap: 7px; }
   .orbit-legend i { width: 16px; height: 3px; border-radius: 2px; display: inline-block; flex: none; }
+  /* The legend card is pointer-events:none; the Motion control opts back in. */
+  .orbit-legend .ol-motion { pointer-events: auto; margin-top: 6px;
+    background: var(--bg-2); border: 1px solid var(--border-2); color: var(--text-dim);
+    padding: 4px 10px; border-radius: var(--radius-pill); font-size: 10.5px;
+    cursor: pointer; align-self: flex-start;
+    transition: border-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out); }
+  .orbit-legend .ol-motion:hover { border-color: var(--accent); color: var(--accent); }
+  .orbit-legend .ol-motion.on { background: var(--accent); color: var(--bg-0);
+    border-color: var(--accent); font-weight: 600; }
+  .orbit-legend .ol-motion:disabled { opacity: 0.45; cursor: default; }
+
+  /* Planet live-layer chips — world-mode sibling of the orbit legend */
+  .planet-legend { display: none; }
+  body.world-mode .planet-legend {
+    position: absolute; left: var(--space-4); bottom: var(--space-4); z-index: 6;
+    display: flex; flex-direction: column; gap: 5px;
+    background: var(--glass-float);
+    -webkit-backdrop-filter: blur(var(--glass-blur-sm)); backdrop-filter: blur(var(--glass-blur-sm));
+    border: 1px solid var(--border); border-radius: var(--radius-2);
+    padding: 9px 11px; font-size: 10.5px; color: var(--text-dim);
+    box-shadow: var(--elev-2); }
+  .planet-legend .ol-title { color: var(--text-faint); text-transform: uppercase;
+    letter-spacing: 1px; font-size: 9px; margin-bottom: 2px; }
+  .planet-legend .pl-chip { background: var(--bg-2); border: 1px solid var(--border-2);
+    color: var(--text-dim); padding: 4px 10px; border-radius: var(--radius-pill);
+    font-size: 10.5px; cursor: pointer; text-align: left;
+    transition: border-color var(--dur-1) var(--ease-out), color var(--dur-1) var(--ease-out),
+                background var(--dur-1) var(--ease-out); }
+  .planet-legend .pl-chip:hover { border-color: var(--accent); color: var(--accent); }
+  .planet-legend .pl-chip[aria-pressed="true"] {
+    background: color-mix(in srgb, var(--accent) 16%, transparent);
+    border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+    color: var(--text); }
+
+  /* Selected-satellite coverage overlay */
+  .sa-footprint { fill: rgba(133, 227, 255, 0.07); stroke-width: 1.2;
+    stroke-opacity: 0.4; stroke-dasharray: 5 7; pointer-events: none; }
+  .sa-visray { stroke: rgba(111, 207, 151, 0.55); stroke-width: 1.2;
+    stroke-dasharray: 2 6; pointer-events: none; }
+
+  /* Constellation-ring generator (properties panel) */
+  .pr-constellation .pr-inline { display: flex; gap: 6px; }
+  .pr-constellation .pr-inline input { width: 64px; }
+  .pr-constellation .pr-inline button { background: var(--accent); color: var(--bg-0);
+    border: none; border-radius: var(--radius-2); padding: 6px 12px; font-size: 11px;
+    font-weight: 600; cursor: pointer; flex: 1; }
+  .pr-constellation .pr-inline button:hover { filter: brightness(1.1); }
+  .pr-constellation .pr-hint { color: var(--text-faint); font-size: 10px; margin-top: 4px; }
+
+  /* === DEEP SPACE: path-to-home + conjunction + mesh panel === */
+  .ds-unitlink.on-path { filter: url(#ds-link-glow); stroke-opacity: 1;
+    animation: ds-path-pulse 1.8s ease-in-out infinite; }
+  @keyframes ds-path-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+  @media (prefers-reduced-motion: reduce) { .ds-unitlink.on-path { animation: none; } }
+  .ds-home-chip rect { fill: rgba(12, 17, 27, 0.88); stroke: var(--accent);
+    stroke-opacity: 0.55; }
+  .ds-home-chip text { fill: var(--text); font-size: 10.5px;
+    font-family: "SF Mono", Menlo, Consolas, monospace; pointer-events: none; }
+  .ds-handoff { cursor: pointer; opacity: 0.8; }
+  .ds-handoff-label { fill: var(--text-dim); font-size: 10px;
+    font-family: "SF Mono", Menlo, Consolas, monospace; pointer-events: none;
+    paint-order: stroke; stroke: var(--bg-0); stroke-width: 3; }
+
+  /* Declutter support: glass plate under the link readout so it survives
+     crossing ring lines; ring captions pushed down the visual hierarchy
+     (the declutter pass hides them outright when they collide). */
+  .ds-readout-plate { fill: rgba(10, 15, 24, 0.82); stroke: var(--border);
+    stroke-width: 1; pointer-events: none; }
+  .ds-orbit-label { opacity: 0.75; }
+
+  .lbs-conjunction { margin: 0 var(--space-3) var(--space-2); padding: 7px 10px;
+    background: #2a230f; border: 1px solid #7a611e; border-radius: var(--radius-2);
+    color: #f5d77a; font-size: 11px; line-height: 1.5; }
+  .lbs-conjunction[hidden] { display: none; }
+
+  /* Collapsible mesh panel — summary row styled like a section header */
+  details.lbs-mesh > summary { list-style: none; cursor: pointer; user-select: none;
+    display: flex; align-items: center; gap: 6px; }
+  details.lbs-mesh > summary::-webkit-details-marker { display: none; }
+  details.lbs-mesh > summary::before { content: '▸'; color: var(--text-faint);
+    font-size: 10px; transition: transform var(--dur-2) var(--ease-out); }
+  details.lbs-mesh[open] > summary::before { transform: rotate(90deg); }
+  details.lbs-mesh > summary h4 { display: inline; margin: 0; }
+  .lbs-mesh-body { margin-top: var(--space-2); }
+  .lbs-mesh-body table { width: 100%; }
+  .lbs-mesh-body > div { overflow-x: auto; }
 
   /* === SETTINGS / AI MODALS === */
   .form-grid { display: grid; gap: 10px; }
@@ -1069,6 +1204,36 @@
   .sitelink-label { fill: var(--text); font-size: 11px; text-anchor: middle;
     pointer-events: none; user-select: none;
     paint-order: stroke; stroke: var(--bg-0); stroke-width: 4; }
+  /* Geodesic redesign: soft under-glow + directional energy flow riding the
+     great-circle path. The flow layer is omitted entirely under reduced
+     motion (gated in JS), and its dash cycle is 30px (4 on / 26 off). */
+  .sitelink-glow { fill: none; opacity: 0.16; pointer-events: none; }
+  .sitelink-flow { fill: none; opacity: 0.85; pointer-events: none;
+    stroke-dasharray: 4 26; animation: sitelink-flow 2.6s linear infinite; }
+  @keyframes sitelink-flow { to { stroke-dashoffset: -30; } }
+  @media (prefers-reduced-motion: reduce) { .sitelink-flow { animation: none; } }
+
+  /* Day/night terminator (live layer) — real solar position */
+  .world-terminator { fill: rgba(3, 8, 18, 0.40); stroke: rgba(130, 175, 255, 0.14);
+    stroke-width: 2.5; pointer-events: none; }
+
+  .world-vignette { pointer-events: none; }
+
+  /* Site pin name plates — glass chip behind the name */
+  .site-plate { fill: rgba(9, 13, 21, 0.72); stroke-opacity: 0.35; stroke-width: 1;
+    pointer-events: none; }
+
+  /* Far-zoom declutter: secondary captions vanish below ~45% */
+  #canvas.zoom-far .site-type,
+  #canvas.zoom-far .site-coord,
+  #canvas.zoom-far .pi-sub,
+  #canvas.zoom-far #cities-group text { display: none; }
+
+  /* Planet live-layer refinement gates (chips in .planet-legend) */
+  #canvas.pl-hide-lights #cities-group,
+  #canvas.pl-hide-flights #planes-group,
+  #canvas.pl-hide-sats #satellites-group,
+  #canvas.pl-hide-terminator #terminator-group { display: none; }
 
   /* === SITE PALETTE === */
   .pal-sites { display: none; }

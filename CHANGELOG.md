@@ -1,5 +1,204 @@
 # GreyNet — Changelog
 
+## 0.8.0 — Planet visual redesign + Planet/Orbit/Deep Space feature build
+
+New module: `planet-metrics.js` (great-circle math, solar position, site-link
+metrics — namespaced as `window.GreyNetPlanet`).
+
+Planet — visual redesign:
+
+- **True great-circle links.** Inter-site links follow the real geodesic
+  (sampled slerp, split cleanly at the antimeridian) instead of a decorative
+  quadratic arc, with a soft under-glow and an animated directional energy
+  flow (omitted under reduced motion). Selected links label themselves with
+  the great-circle distance and estimated one-way latency.
+- **Real day/night terminator.** The night hemisphere is shaded from the
+  actual solar position (declination + equation of time) and tracks the
+  clock; toggleable.
+- **Live-layer chips.** A Planet legend card (sibling of the Orbit shells
+  legend) toggles City lights / Flights / Satellites / Day-night
+  individually, persisted across sessions. The toolbar Live button remains
+  the master switch.
+- **Site pins**: glass name plates behind site names for legibility over
+  bright geography; secondary captions (type, coordinates, city-light names)
+  auto-declutter below 45% zoom. Depth vignette over the map corners.
+- **Link metrics in Properties**: an inter-site link now shows great-circle
+  span, estimated fiber route (1.4× geodesic) and one-way/RTT latency.
+
+Orbit:
+
+- **Constellation motion.** A Motion toggle in the shells legend animates
+  satellites along their rings at scaled real speeds (LEO laps in ~70 s;
+  shell-to-shell ratios are physical). Paused while dragging; disabled under
+  OS reduced-motion; persisted.
+- **Coverage on selection.** Selecting a satellite draws its horizon-limited
+  footprint wedge (true tangent geometry to the Earth disc) and dashed
+  sight-lines to every ground station with clear line-of-sight.
+- **Constellation generator.** With a satellite selected, Properties offers
+  "Create ring": fills the orbit with N evenly spaced copies chained by
+  Laser ISLs (one undo step, selection = the new ring).
+
+Deep Space:
+
+- **Solar conjunction awareness.** The Link Budget Studio computes the real
+  Sun–Earth–target separation from the ephemeris; under 3° it shows a
+  warning banner, explains the limiter, and caps the verdict at
+  "Marginal · conjunction" (matches the actual ~26-month Mars cadence —
+  next: Mar 2028).
+- **Path back to home.** Selecting a deep-space unit highlights the exact
+  link chain its route to Earth traverses and shows a chip with hop count
+  and cumulative one-way light-time. `dsPathBackToHome` now returns
+  `hopNodes` / `linkIds` / `totalLatencySec` (backward-compatible), and the
+  mesh table gains a humanized "Home light-time" column.
+- **Handoff links are visible.** Deep-space↔orbit handoffs used to be
+  invisible in the Deep Space view; they now render as labeled stub arrows
+  ("⇡ orbit: <asset>") and participate in path highlighting.
+- **Mesh panel un-cramped**: now a collapsible section (open once a mesh
+  exists) with horizontal scroll for its tables.
+- **Label declutter.** The heliocentric scene no longer overprints its own
+  captions. Two mechanisms: (1) units anchored to the same planet fan across
+  the sunward arc in distinct slots (the DSN station keeps the anti-sunward
+  slot; explicit offsets are honored), and (2) a priority-ordered collision
+  pass runs after each render — markers claim space first, then captions
+  place by importance (selected unit → station → units → target planet →
+  link readout → planets → ring captions), each trying alternate positions
+  (flip above, step beside, slide the readout along the link path) before
+  low-value captions hide. The link readout gained a glass plate so it stays
+  readable crossing ring lines. Verified zero overlapping captions in
+  default, selected, and multi-unit stress scenes.
+
+Also fixed (adversarial-verifier findings across 0.7.1/0.8.0):
+
+- **Export menu actually works now.** Two successive defects: the toolbar's
+  overflow clipped the absolute-positioned menu, and the first fix
+  (position: fixed) was still trapped — an ancestor with backdrop-filter is
+  the containing block for fixed descendants. The menu now lives outside the
+  toolbar and is anchored under the button at open time; verified by a real
+  end-to-end PNG export.
+- Constellation ring size works for custom N (the ring-size input was wired
+  into the generic property handler, which reset it to 6, destroyed the
+  button mid-click, and wrote a junk "null" key onto the asset).
+- Path-home light-time bills the interplanetary handoff leg (a Mars relay
+  linked straight to a ground station reported "0.0 s"; now 4.4 min via the
+  same 1-D model). Canvas link class honors the conjunction cap so chip and
+  scene agree. Deep-space connect previews start at the anchored marker, not
+  the stale free-float position.
+- greatCircleSegments no longer stack-overflows on near-antipodal equatorial
+  site pairs (the antipodal nudge could oscillate).
+- Viewport grid re-derives on window resize; undo/redo across a view switch
+  swaps the per-mode viewport; AI link fallbacks are scoped to the active
+  site/city and reject self-links; legends holding focusable controls are no
+  longer aria-hidden; package-lock regenerated for 0.8.0.
+
+Test surface: +14 regression tests (tests/regression.spec.js) covering the
+QAQC fixes and the 0.8.0 feature math — full suite now 97 green.
+
+## 0.7.1 — Full-app QAQC: correctness, layout, and rendering-performance repair
+
+A whole-app defect sweep (visual QA of all five views + adversarial code review
+of every module), fixing 30+ verified bugs. No data-format changes; one
+sanitizer rule was *loosened* deliberately (see "City backdrop images").
+
+Rendering / performance:
+
+- **Grid no longer stalls frame capture.** The background grid was a fixed
+  20,000×20,000 px pattern-filled rect — a ~400-megapixel raster surface that
+  hung compositor readback (screenshots, thumbnails, print) and taxed every
+  repaint. It is now sized to the visible viewport (plus a pan margin) and
+  re-anchored on every pan/zoom; all five views screenshot in <200 ms.
+
+Layout / design:
+
+- **Toolbar fits.** At the default 1440×900 window (and down to 1280px) every
+  toolbar control — including Scan, Ask AI, Validate, ⚙ and ? — is on screen.
+  Previously the toolbar needed ~1650px and silently clipped its right end.
+  Low-value chrome (subtitle, key hints, mode pill) sheds first via media
+  queries; below ~1200px the toolbar scrolls instead of clipping.
+- **City bar no longer crushes its controls** ("Upload image…" wrapping into a
+  56px blob); the trailing hint ellipsizes instead. The page can no longer be
+  shifted sideways by focus scrolling (`overflow: clip`).
+- **Warnings tray paints above the city tile map** (it was buried under
+  OSM/Google tiles, so Validate appeared to do nothing in City view); its
+  collapse chevron now rotates.
+- **Cross-view ghosts fixed**: planet-infra markers and deep-space units/links
+  no longer linger (clickably!) on top of other views.
+- Link Budget Studio: planet targets now have descriptions (the "Target:" line
+  rendered empty for all eight planets); dB-waterfall bars scale correctly
+  (terms over half the max no longer clip to identical full-length bars).
+
+Data integrity:
+
+- **Deleting anything no longer destroys Deep-Space↔Orbit handoff links**
+  (the prune treated cross-domain links as orphans).
+- **City backdrop images survive save/load.** "Upload image…" stores a data:
+  URI which the sanitizer then destroyed on reload (truncate → reject). Raster
+  `data:image/*` URIs (≤6 MB) now round-trip; `javascript:`, `data:text/html`
+  and scriptable SVG data URIs remain rejected.
+- **`typeOf()` no longer misclassifies** VPN links / Internet zones as devices
+  ('vpn'/'internet' exist in two type tables) — selecting a VPN tunnel opened
+  the device editor, and Duplicate injected NaN-position phantom devices.
+- **New** clears every layer (sites, cities, endpoints, orbit, deep space) —
+  it previously kept them and re-persisted them on the next autosave.
+- Zone tool stamps `siteId`; zones no longer leak into every site and
+  reattach to the wrong site on reload.
+- Import: a malformed v4 save's `progression` block no longer aborts the whole
+  file load (migration is defensive; the sanitizer repairs it downstream).
+
+Editing / undo:
+
+- **Ctrl+A is scoped to the current view** (and active site). It used to
+  select the whole document invisibly — Ctrl+A + Delete in Planet view wiped
+  every site's local network with no visual indication.
+- **Duplicate works in every view** (endpoints, orbit assets, planet infra,
+  deep-space units + their links) and no longer fills the selection with
+  ghost IDs when nothing was duplicable.
+- **Undo/redo across a view switch re-syncs the UI** (mode classes, palette,
+  toolbar, tile map, orbit animation) — clicks no longer dispatch on a view
+  the user isn't looking at. Same for loading a file saved in another view.
+- Drags released outside the canvas no longer keep dragging when the cursor
+  returns; map-marker drags (OSM/Google) are undoable; plain selection clicks
+  no longer flood the undo stack with no-op entries.
+
+Metrics / validation truthfulness:
+
+- **Orbit panel and validator now share one physics model** (the validator
+  delegates to the same inclined-orbit math the canvas draws), so "LOS: Clear"
+  and "occulted" can no longer disagree in the same panel. Ground stations are
+  embedded in the same 3D frame as satellites (uplink range/latency/occlusion
+  now match what's on screen); ground↔ground links use great-circle distance
+  at fiber speed instead of a through-the-planet chord.
+- **Deep Space completion is achievable as documented**: the "anchored +
+  internally-linked + working orbit layer" alternative was dead code (wrong
+  property path), so the blocker never cleared without an explicit handoff.
+- Deep-space mesh: reachability BFS no longer stops at the first orbit asset
+  (units with a real ground path were reported orphaned depending on link
+  order); Earth-anchored units (Moon/JWST) no longer report ~8-minute latency
+  for a ~1.3-light-second link (parent-frame mix-up).
+- PNG/SVG export renders only the active site (it merged all sites into one
+  overlapping diagram) and reads colors from the live theme instead of a
+  stale hardcoded palette.
+- Cost export: a cleared cost override falls back to the catalog price
+  instead of $0, and "1,500"-style input no longer produces $NaN rows.
+- Ask AI can now wire *existing* objects: link actions resolve labels against
+  current state (they only knew labels created in the same response), and the
+  context sent to the model includes object labels (disclosure text updated).
+- Auto-connect in map-backed cities picks the *nearest* cabinet/junction by
+  lat/lng (the x/y metric returned 0 for all tile-map endpoints, so it wired
+  to whichever was created first).
+- World-map tooltips for Bogotá and São Paulo show their countries again
+  (double-encoded UTF-8 keys in the country table).
+- **Planet-view cities sit on the map again.** The bundled worldmap.png is
+  AI-generated artwork whose painted geography does NOT span a true
+  −180…180/±90 equirectangular box; stretching it edge-to-edge put every
+  overlay ~15–20° off (Los Angeles rendered in central Canada, the New York
+  site pins in Labrador). The backdrop is now drawn at its calibrated
+  geographic bounds (`WORLD_IMAGE_CAL`, clipped to the map frame) so city
+  lights, site pins and links line up with the painted continents; a
+  user-dropped true-equirectangular `worldmap.jpg` still maps 1:1. Residual
+  regional warp is inherent to the artwork (US West coast ~8°).
+- Link Budget Studio TX/RX gain fallbacks un-swapped (73/47 dBi, matching the
+  documented DSN-dish / HGA defaults).
+
 ## 0.7.0 — Space environments QA/QC + redesign
 
 A focused UX/UE/design pass over the two flagship space views (Orbit and Deep

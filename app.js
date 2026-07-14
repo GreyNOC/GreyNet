@@ -42,6 +42,11 @@ function typeOf(item) {
   if (item.type && typeof PLANET_INFRA_TYPES !== 'undefined' && PLANET_INFRA_TYPES[item.type] && item.lat != null) return 'planetinfra';
   if (item.lat != null && item.lng != null)       return 'site';
   if (item.fromSiteId && item.toSiteId)           return 'sitelink';
+  // Shape checks first: 'vpn' is both a device and a link type, 'internet'
+  // both a device and a zone type — structure disambiguates before the
+  // type-table lookups below.
+  if (item.fromId && item.toId && item.type && LINK_TYPES[item.type]) return 'link';
+  if (item.w != null && item.h != null && item.type && ZONE_TYPES[item.type]) return 'zone';
   if (item.type && DEVICE_TYPES[item.type])       return 'device';
   if (item.type && LINK_TYPES[item.type])         return 'link';
   if (item.type && ZONE_TYPES[item.type])         return 'zone';
@@ -402,11 +407,44 @@ function updateWorldTransform() {
     `translate(${state.view.pan.x} ${state.view.pan.y}) scale(${state.view.zoom})`);
   dom.sbZoom.textContent = Math.round(state.view.zoom * 100) + '%';
   dom.zoomResetBtn.textContent = Math.round(state.view.zoom * 100) + '%';
+  // Declutter far zooms: secondary labels (site type/coords, city names)
+  // become noise below ~45% — CSS-gated on this class.
+  dom.svg.classList.toggle('zoom-far', state.view.zoom < 0.45);
+  updateGridBounds();
+}
+
+// Size the pattern-filled grid rect to just the VISIBLE world region (plus a
+// pan margin) instead of a fixed 20,000×20,000 sheet. A 400-megapixel
+// pattern surface stalls compositor readback (screenshots, print, thumbnail
+// capture hang) and taxes every repaint; the visible viewport needs only a
+// few hundred kilopixels.
+// Re-derive on window resize too — maximizing the window would otherwise
+// leave an ungridded strip until the next pan/zoom.
+window.addEventListener('resize', () => updateGridBounds());
+function updateGridBounds() {
+  if (!dom.gridBg) return;
+  const rect = dom.svg.getBoundingClientRect();
+  if (!rect.width || !rect.height) return;
+  const zoom = state.view.zoom || 1;
+  const margin = 400; // world-units of slack so small pans don't re-attribute
+  const x = (-state.view.pan.x) / zoom - margin;
+  const y = (-state.view.pan.y) / zoom - margin;
+  const w = rect.width / zoom + margin * 2;
+  const h = rect.height / zoom + margin * 2;
+  // Snap to the 100px pattern tile so the grid lines stay world-anchored.
+  const snapTo = 100;
+  const sx = Math.floor(x / snapTo) * snapTo;
+  const sy = Math.floor(y / snapTo) * snapTo;
+  dom.gridBg.setAttribute('x', sx);
+  dom.gridBg.setAttribute('y', sy);
+  dom.gridBg.setAttribute('width', Math.ceil((w + (x - sx)) / snapTo) * snapTo + snapTo);
+  dom.gridBg.setAttribute('height', Math.ceil((h + (y - sy)) / snapTo) * snapTo + snapTo);
 }
 
 function renderAll() {
   if (state.viewMode === 'world') {
     renderWorldMap();
+    renderTerminator();
     renderSiteLinks();
     renderSites();
     renderPlanetInfra();
@@ -421,6 +459,7 @@ function renderAll() {
   } else if (state.viewMode === 'deepspace') {
     renderDeepSpace();
     renderDeepSpaceUnits();
+    dsDeclutterLabels();
   } else {
     renderZones();
     renderLinks();
@@ -1033,8 +1072,14 @@ function spaceAssetVectorKm(a) {
   const def = SPACE_ASSET_TYPES[a.type] || SPACE_ASSET_TYPES.satellite_leo;
   const orbitKey = a.type === 'ground_station' ? 'ground' : (a.orbit || def.orbit || 'leo');
   if (orbitKey === 'ground') {
+    // Ground stations render on the visible Earth rim at screen angle `ang`
+    // (spaceAssetPosition). Embed them in the SAME 3D frame the satellites
+    // use — X right, Y up (screen y is down, hence the minus), Z toward the
+    // viewer; the rim is the z = 0 plane. The old equatorial embedding
+    // ((cos, 0, sin)) disagreed with the satellites' frame, so uplink
+    // range/latency/occlusion contradicted what was on screen.
     const ang = a.angle || Math.atan2(a.y || 0, a.x || 1);
-    return { x: 6371 * Math.cos(ang), y: 0, z: 6371 * Math.sin(ang), orbitKey };
+    return { x: 6371 * Math.cos(ang), y: -6371 * Math.sin(ang), z: 0, orbitKey };
   }
   const radiusKm = 6371 + (ORBIT_ALTITUDES[orbitKey] || ORBIT_ALTITUDES.leo).km;
   const p = orbitPoint2D(orbitKey, a.angle || 0);
@@ -1045,16 +1090,23 @@ function spaceAssetVectorKm(a) {
 function spaceLinkMetrics(a, b) {
   const va = spaceAssetVectorKm(a), vb = spaceAssetVectorKm(b);
   const dx = vb.x - va.x, dy = vb.y - va.y, dz = vb.z - va.z;
-  const distanceKm = Math.hypot(dx, dy, dz);
-  const latencyMs = distanceKm / 299792.458 * 1000;
+  let distanceKm = Math.hypot(dx, dy, dz);
+  let latencyMs = distanceKm / 299792.458 * 1000;
   let occulted = false;
   const aGround = a.type === 'ground_station';
   const bGround = b.type === 'ground_station';
-  if (aGround !== bGround) {
+  if (aGround && bGround) {
+    // Terrestrial pair: a ground route runs along the surface, not through
+    // the planet — use the great-circle distance at fiber propagation speed
+    // (~c/1.5). Occlusion doesn't apply to a ground route.
+    const cosc = clamp((va.x * vb.x + va.y * vb.y + va.z * vb.z) / (6371 * 6371), -1, 1);
+    distanceKm = 6371 * Math.acos(cosc);
+    latencyMs = distanceKm / 199861 * 1000;
+  } else if (aGround !== bGround) {
     const g = aGround ? va : vb;
     const s = aGround ? vb : va;
     occulted = ((s.x - g.x) * g.x + (s.y - g.y) * g.y + (s.z - g.z) * g.z) <= 0;
-  } else if (!aGround && !bGround) {
+  } else {
     const seg2 = dx * dx + dy * dy + dz * dz;
     const t = seg2 ? clamp(-(va.x * dx + va.y * dy + va.z * dz) / seg2, 0, 1) : 0;
     const cx = va.x + dx * t, cy = va.y + dy * t, cz = va.z + dz * t;
@@ -1083,9 +1135,24 @@ function startOrbitAnimation() {
     _orbitAnim.earthAngle += (2 * Math.PI / 90) * dt;
     if (state.viewMode === 'space') {
       renderEarth3D(_orbitAnim.earthAngle);
-      // Orbits do not need re-projection (they're static in world space),
-      // but satellites that ride them might in future — leave the helper
-      // callable per frame and just call it once at start.
+      // Constellation motion: advance satellites along their rings at scaled
+      // real relative speeds (LEO laps in ~70 s, GEO in ~18 min — the RATIO
+      // between shells is the physical one). Paused while any drag is active
+      // so the drag handler owns the angle, and throttled to ~30 fps since
+      // the asset/link layers rebuild their DOM.
+      if (_orbitAnim.motion && !drag && state.spaceAssets.length) {
+        for (const a of state.spaceAssets) {
+          if (a.type === 'ground_station') continue;
+          const key = a.orbit || (SPACE_ASSET_TYPES[a.type] || SPACE_ASSET_TYPES.satellite_leo).orbit || 'leo';
+          a.angle = ((a.angle || 0) + dt * 2 * Math.PI / (orbitPeriodMinutes(key) * 0.75)) % (2 * Math.PI);
+        }
+        _orbitAnim.motionAcc = (_orbitAnim.motionAcc || 0) + dt;
+        if (_orbitAnim.motionAcc >= 0.033) {
+          _orbitAnim.motionAcc = 0;
+          renderSpaceAssets();
+          renderSpaceLinks();
+        }
+      }
     }
     _orbitAnim.rafId = requestAnimationFrame(step);
   };
@@ -1097,6 +1164,63 @@ function stopOrbitAnimation() {
   _orbitAnim.rafId = 0;
 }
 
+const ORBIT_MOTION_KEY = 'greynet:orbitmotion:v1';
+function initOrbitMotionToggle() {
+  const btn = document.getElementById('orbit-motion-btn');
+  if (!btn) return;
+  if (prefersReducedMotion()) {
+    // The rotation loop never runs under reduced motion; don't offer it.
+    btn.disabled = true;
+    btn.title = 'Disabled — the OS "reduce motion" preference is on';
+    return;
+  }
+  const apply = (on) => {
+    _orbitAnim.motion = on;
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    btn.classList.toggle('on', on);
+    btn.textContent = on ? '⏸ Motion' : '▶ Motion';
+  };
+  let on = false;
+  try { on = localStorage.getItem(ORBIT_MOTION_KEY) === '1'; } catch (e) {}
+  apply(on);
+  btn.addEventListener('click', () => {
+    apply(!_orbitAnim.motion);
+    try { localStorage.setItem(ORBIT_MOTION_KEY, _orbitAnim.motion ? '1' : '0'); } catch (e) {}
+  });
+}
+
+// Selected-satellite coverage: the horizon-limited footprint wedge (tangent
+// lines to the Earth disc + the visible rim arc) plus dashed sight-lines to
+// every ground station with clear line-of-sight. Screen-space stylization of
+// the real geometry: the tangent half-angle comes from the actual disc.
+function buildCoverageOverlay(a, pos) {
+  const frag = document.createDocumentFragment();
+  const R = 240; // Earth disc screen radius
+  const r = Math.hypot(pos.x, pos.y);
+  if (r <= R + 8) return frag;
+  const theta = Math.atan2(pos.y, pos.x);
+  const alpha = Math.acos(R / r);          // center-angle to tangent contacts
+  const c1 = { x: R * Math.cos(theta - alpha), y: R * Math.sin(theta - alpha) };
+  const c2 = { x: R * Math.cos(theta + alpha), y: R * Math.sin(theta + alpha) };
+  const def = SPACE_ASSET_TYPES[a.type] || SPACE_ASSET_TYPES.satellite_leo;
+  frag.appendChild(svgEl('path', {
+    class: 'sa-footprint',
+    d: `M ${pos.x} ${pos.y} L ${c1.x.toFixed(1)} ${c1.y.toFixed(1)} ` +
+       `A ${R} ${R} 0 0 1 ${c2.x.toFixed(1)} ${c2.y.toFixed(1)} Z`,
+    stroke: def.color,
+  }));
+  for (const gs of state.spaceAssets) {
+    if (gs.type !== 'ground_station') continue;
+    const m = spaceLinkMetrics(a, gs);
+    if (m.occulted) continue;
+    const pg = spaceAssetPosition(gs);
+    frag.appendChild(svgEl('line', {
+      class: 'sa-visray', x1: pos.x, y1: pos.y, x2: pg.x, y2: pg.y,
+    }));
+  }
+  return frag;
+}
+
 function renderSpaceAssets() {
   dom.spaceassetsLayer.innerHTML = '';
   const assetRows = state.spaceAssets.map(a => ({ asset: a, pos: spaceAssetPosition(a) }))
@@ -1106,6 +1230,9 @@ function renderSpaceAssets() {
     const def = SPACE_ASSET_TYPES[a.type] || SPACE_ASSET_TYPES.satellite_leo;
     const pos = row.pos;
     const selected = state.selectedIds.has(a.id);
+    if (selected && a.type !== 'ground_station') {
+      dom.spaceassetsLayer.appendChild(buildCoverageOverlay(a, pos));
+    }
     const pending = state.pendingConnectId === a.id;
     const linkCount = state.spaceLinks.filter(l => l.fromAssetId === a.id || l.toAssetId === a.id).length;
     const status = linkCount ? (pos.front === false ? 'warn' : 'ok') : 'idle';
@@ -1443,6 +1570,11 @@ function renderWorldMap() {
     }).join(' ');
     frag.appendChild(svgEl('polygon', { class: 'continent', points: pts }));
   }
+  // Depth vignette above the imagery, below pins (gradient def in index.html)
+  frag.appendChild(svgEl('rect', {
+    class: 'world-vignette', x: 0, y: 0, width: 3600, height: 1800,
+    fill: 'url(#world-vignette-gradient)', 'pointer-events': 'none',
+  }));
   // Outer frame
   frag.appendChild(svgEl('rect', {
     class: 'world-frame', x: 0, y: 0, width: 3600, height: 1800, rx: 4
@@ -1453,18 +1585,49 @@ function renderWorldMap() {
   buildLiveLayer();
 }
 
+// Geographic calibration for the bundled worldmap backdrop. The shipped
+// worldmap.png is AI-generated artwork, not a survey-accurate equirectangular
+// render: stretched edge-to-edge it puts New York ~19° south and ~9° east of
+// where lat/lng projection says it belongs, so every overlay (city lights,
+// site pins, links) floated off the painted continents. These bounds say
+// which lat/lng box the image's PAINTED geography actually spans; the <image>
+// is drawn at that box (clipped to the map frame) so overlays line up.
+// Fitted against identifiable anchors (NYC/LA/London/Cape Horn/Cape York/
+// India/Iberia light blobs + coastlines); the AI geography is a few degrees
+// warped region-to-region, so this is a best linear fit, not perfection.
+// A user-supplied true equirectangular worldmap.jpg should use the identity
+// box — see the per-file table below.
+const WORLD_IMAGE_CAL = {
+  // Bundled AI artwork (worldmap.png).
+  'worldmap.png': { lngLeft: -166.3, lngRight: 244.6, latTop: 114.8, latBottom: -83.9 },
+  // User-dropped overrides are assumed to be true equirectangular.
+  'worldmap.jpg':  { lngLeft: -180, lngRight: 180, latTop: 90, latBottom: -90 },
+  'worldmap.webp': { lngLeft: -180, lngRight: 180, latTop: 90, latBottom: -90 },
+};
+
 function tryLoadWorldImage(candidates) {
   if (!candidates.length) return;
   const url = candidates[0];
   // Use a hidden HTMLImageElement to test loadability without committing to SVG
   const probe = new Image();
   probe.onload = () => {
+    const cal = WORLD_IMAGE_CAL[url] || { lngLeft: -180, lngRight: 180, latTop: 90, latBottom: -90 };
+    const tl = latLngToWorld(cal.latTop, cal.lngLeft);
+    const br = latLngToWorld(cal.latBottom, cal.lngRight);
+    // The calibrated image can overhang the 3600×1800 frame — clip it.
+    let clip = dom.worldmapLayer.querySelector('#world-image-clip');
+    if (!clip) {
+      clip = svgEl('clipPath', { id: 'world-image-clip' },
+        [svgEl('rect', { x: 0, y: 0, width: 3600, height: 1800 })]);
+      dom.worldmapLayer.insertBefore(clip, dom.worldmapLayer.firstChild);
+    }
     // Insert SVG <image> at the bottom of the worldmap layer (above ocean rect)
     const svgImg = svgEl('image', {
       class: 'world-image',
       href: url, 'xlink:href': url,
-      x: 0, y: 0, width: 3600, height: 1800,
+      x: tl.x, y: tl.y, width: br.x - tl.x, height: br.y - tl.y,
       preserveAspectRatio: 'none',
+      'clip-path': 'url(#world-image-clip)',
     });
     // Insert just after the world-ocean rect so it overlays it
     const ocean = dom.worldmapLayer.querySelector('.world-ocean');
@@ -1476,10 +1639,33 @@ function tryLoadWorldImage(candidates) {
   probe.src = url + '?cb=' + Date.now();  // cache-bust so re-checks work after the user adds the file
 }
 
+// Day/night terminator — a real solar-position overlay (planet-metrics.js).
+// The polygon is cheap (≈180 points), so it's recomputed on every world
+// render to track the actual clock.
+function renderTerminator() {
+  const group = document.getElementById('terminator-group');
+  if (!group) return;
+  if (typeof terminatorNightPolygon !== 'function') { group.innerHTML = ''; return; }
+  const night = terminatorNightPolygon(Date.now(), 180);
+  const d = night.points.map((pt, i) => {
+    const w = latLngToWorld(pt.lat, pt.lng);
+    return `${i === 0 ? 'M' : 'L'} ${w.x.toFixed(1)} ${w.y.toFixed(1)}`;
+  }).join(' ') + ' Z';
+  let path = group.querySelector('path');
+  if (!path) {
+    path = svgEl('path', { class: 'world-terminator' });
+    group.appendChild(path);
+  }
+  path.setAttribute('d', d);
+}
+
 function buildLiveLayer() {
   const layer = document.getElementById('live-layer');
   if (layer.childElementCount > 0) return;
   const frag = document.createDocumentFragment();
+
+  // Night-side shading goes UNDER the lights/planes/satellites.
+  frag.appendChild(svgEl('g', { id: 'terminator-group' }));
 
   // City lights
   const cityGroup = svgEl('g', { id: 'cities-group' });
@@ -1639,21 +1825,58 @@ function renderSites() {
       g.appendChild(tx);
     }
 
-    // name
-    const nm = svgEl('text', { class: 'site-name', x: 0, y: 50 });
-    nm.textContent = s.name || def.label;
+    // name plate: glass backdrop sized to the name, keeps labels legible
+    // over bright painted geography
+    const name = s.name || def.label;
+    const plateW = Math.max(60, name.length * 7.4 + 18);
+    g.appendChild(svgEl('rect', {
+      class: 'site-plate', x: -plateW / 2, y: 38, width: plateW, height: 20,
+      rx: 5, stroke: def.color,
+    }));
+    const nm = svgEl('text', { class: 'site-name', x: 0, y: 52 });
+    nm.textContent = name;
     g.appendChild(nm);
     // type
-    const ty = svgEl('text', { class: 'site-type', x: 0, y: 66 });
+    const ty = svgEl('text', { class: 'site-type', x: 0, y: 70 });
     ty.textContent = def.label.split(' ')[0];
     g.appendChild(ty);
     // coords
-    const co = svgEl('text', { class: 'site-coord', x: 0, y: 80 });
+    const co = svgEl('text', { class: 'site-coord', x: 0, y: 83 });
     co.textContent = formatLatLng(s.lat, s.lng);
     g.appendChild(co);
 
     dom.sitesLayer.appendChild(g);
   }
+}
+
+// Geodesic path data for a site pair: true great-circle route sampled into
+// equirectangular polyline segments (planet-metrics.js), split cleanly at the
+// antimeridian. Falls back to the old single quadratic arc if the module is
+// unavailable.
+function siteLinkPathData(a, b) {
+  if (typeof greatCircleSegments === 'function') {
+    const segs = greatCircleSegments(a.lat, a.lng, b.lat, b.lng, 64);
+    let d = '';
+    let mid = null;
+    let total = 0;
+    for (const seg of segs) total += seg.length;
+    let seen = 0;
+    for (const seg of segs) {
+      seg.forEach((pt, i) => {
+        const w = latLngToWorld(pt.lat, pt.lng);
+        d += (i === 0 ? ` M ${w.x.toFixed(1)} ${w.y.toFixed(1)}` : ` L ${w.x.toFixed(1)} ${w.y.toFixed(1)}`);
+        seen++;
+        if (!mid && seen >= total / 2) mid = w;
+      });
+    }
+    const pa = latLngToWorld(a.lat, a.lng);
+    return { d: d.trim(), mid: mid || pa };
+  }
+  const pa = latLngToWorld(a.lat, a.lng);
+  const pb = latLngToWorld(b.lat, b.lng);
+  const mx = (pa.x + pb.x) / 2;
+  const my = (pa.y + pb.y) / 2 - Math.abs(pb.x - pa.x) * 0.18;
+  return { d: `M ${pa.x} ${pa.y} Q ${mx} ${my} ${pb.x} ${pb.y}`, mid: { x: mx, y: my } };
 }
 
 function renderSiteLinks() {
@@ -1664,16 +1887,16 @@ function renderSiteLinks() {
     if (!a || !b) continue;
     const def = SITE_LINK_TYPES[sl.type] || SITE_LINK_TYPES.wan;
     const selected = state.selectedIds.has(sl.id);
-
-    const pa = latLngToWorld(a.lat, a.lng);
-    const pb = latLngToWorld(b.lat, b.lng);
-    // curve mid-point above for arc effect
-    const mx = (pa.x + pb.x) / 2;
-    const my = (pa.y + pb.y) / 2 - Math.abs(pb.x - pa.x) * 0.18;
-    const d = `M ${pa.x} ${pa.y} Q ${mx} ${my} ${pb.x} ${pb.y}`;
+    const { d, mid } = siteLinkPathData(a, b);
+    const metrics = (typeof planetSiteLinkMetrics === 'function') ? planetSiteLinkMetrics(sl, state) : null;
 
     const g = svgEl('g', { 'data-id': sl.id, 'data-kind': 'sitelink' });
     g.appendChild(svgEl('path', { class: 'sitelink-hit', d }));
+    // soft under-glow, then the typed line, then the animated flow dash
+    g.appendChild(svgEl('path', {
+      class: 'sitelink-glow', d, stroke: def.color,
+      'stroke-width': def.width * 3.2, 'stroke-linecap': 'round',
+    }));
     const pathAttrs = {
       class: 'sitelink' + (selected ? ' selected' : ''),
       d, stroke: def.color, 'stroke-width': def.width,
@@ -1681,10 +1904,18 @@ function renderSiteLinks() {
     };
     if (def.dash) pathAttrs['stroke-dasharray'] = def.dash;
     g.appendChild(svgEl('path', pathAttrs));
+    if (!prefersReducedMotion()) {
+      g.appendChild(svgEl('path', {
+        class: 'sitelink-flow', d, stroke: def.color,
+        'stroke-width': Math.max(1.2, def.width * 0.6), 'stroke-linecap': 'round',
+      }));
+    }
 
-    if (sl.label || sl.bandwidth) {
-      const t = svgEl('text', { class: 'sitelink-label', x: mx, y: my });
-      t.textContent = [sl.label, sl.bandwidth].filter(Boolean).join(' · ');
+    const labelBits = [sl.label, sl.bandwidth].filter(Boolean);
+    if (metrics) labelBits.push(`${Math.round(metrics.distanceKm).toLocaleString()} km · ~${metrics.latencyMs.toFixed(0)} ms`);
+    if (labelBits.length && (selected || sl.label || sl.bandwidth)) {
+      const t = svgEl('text', { class: 'sitelink-label', x: mid.x, y: mid.y - 8 });
+      t.textContent = labelBits.join(' · ');
       g.appendChild(t);
     }
 
@@ -1748,15 +1979,29 @@ function deepSpaceLinkByIdLocal(id) {
 //   u.anchorOffY  - tangential offset (px)
 // Falls back gracefully if the anchor body or ephemeris isn't available
 // (e.g. when this function runs before the heliocentric module loads).
-function resolveDeepUnitPosition(u, epoch = Date.now()) {
+// Which planet a unit's marker rides on (its anchor, or the anchor's parent
+// for Moon/JWST-style sub-bodies). null when free-floating.
+function dsUnitHost(u) {
+  if (!u.anchor || typeof DS_TARGETS === 'undefined') return null;
+  const body = DS_TARGETS[u.anchor];
+  if (!body) return null;
+  if (body.kind === 'satellite' || body.kind === 'spacecraft') return body.parent || 'earth';
+  return u.anchor;
+}
+
+// `fan` ({ i, n }) distributes co-anchored units around their host: without
+// it, every unit anchored to the same planet lands on the same spot (and on
+// the DSN source marker, which holds the anti-sunward radial slot). Units
+// fan across the SUNWARD arc at slightly increasing radii. Explicit
+// anchorOffX/Y wins over the fan — the user placed it deliberately.
+function resolveDeepUnitPosition(u, epoch = Date.now(), fan = null) {
   if (!u.anchor || typeof DS_TARGETS === 'undefined' || typeof dsPlanetAU !== 'function') {
     return { x: u.x || 0, y: u.y || 0, anchored: false };
   }
   const body = DS_TARGETS[u.anchor];
   if (!body) return { x: u.x || 0, y: u.y || 0, anchored: false };
   // Resolve host planet's screen position the same way renderDeepSpace does.
-  let host = u.anchor;
-  if (body.kind === 'satellite' || body.kind === 'spacecraft') host = body.parent || 'earth';
+  const host = dsUnitHost(u);
   if (host === 'sun') return { x: (u.anchorOffX || 0), y: (u.anchorOffY || 0), anchored: true };
   let R = 200; let theta = 0;
   try {
@@ -1769,6 +2014,19 @@ function resolveDeepUnitPosition(u, epoch = Date.now()) {
   } catch (_) { /* ignore — fall through to fallback */ }
   const baseX = R * Math.cos(theta);
   const baseY = R * Math.sin(theta);
+  const hasExplicitOff = !!(u.anchorOffX || u.anchorOffY);
+  if (!hasExplicitOff && fan && fan.n > 0) {
+    // Slot angle measured from the sunward direction (theta + π), spreading
+    // ±0.85 rad per step; radius grows a touch per slot so labels stagger.
+    const spread = 0.85;
+    const slotAng = theta + Math.PI + (fan.i - (fan.n - 1) / 2) * spread;
+    const slotR = 38 + fan.i * 7;
+    return {
+      x: baseX + Math.cos(slotAng) * slotR,
+      y: baseY + Math.sin(slotAng) * slotR,
+      anchored: true,
+    };
+  }
   // For sub-bodies (Moon/JWST) offset radially outward from host so multiple
   // anchored units don't stack on the planet.
   const radialOff = (body.kind === 'satellite' || body.kind === 'spacecraft') ? 30 : 0;
@@ -1791,31 +2049,103 @@ function renderDeepSpaceUnits() {
   if (state.viewMode !== 'deepspace') return;
 
   const epoch = (state.comms && state.comms.epochMs) || Date.now();
-  // Cache resolved positions so links use the same coords as units.
+  // Cache resolved positions so links use the same coords as units. Units
+  // sharing a host planet (and without explicit offsets) get fan slots so
+  // they don't stack on each other or the DSN source marker.
+  const fanGroups = new Map();   // host → [unit, ...] (slot order = array order)
+  for (const u of state.deepSpaceUnits) {
+    if (u.anchorOffX || u.anchorOffY) continue;
+    const host = dsUnitHost(u);
+    if (!host || host === 'sun') continue;
+    if (!fanGroups.has(host)) fanGroups.set(host, []);
+    fanGroups.get(host).push(u);
+  }
+  const fanOf = (u) => {
+    const host = dsUnitHost(u);
+    const group = host ? fanGroups.get(host) : null;
+    if (!group) return null;
+    const i = group.indexOf(u);
+    return i === -1 ? null : { i, n: group.length };
+  };
   const pos = new Map();
-  for (const u of state.deepSpaceUnits) pos.set(u.id, resolveDeepUnitPosition(u, epoch));
+  for (const u of state.deepSpaceUnits) pos.set(u.id, resolveDeepUnitPosition(u, epoch, fanOf(u)));
+
+  // Path-back-to-home: when exactly one unit is selected, light up the DS
+  // links its BFS route traverses and summarize the trip near the unit.
+  let homePath = null, homeUnitId = null;
+  if (state.selectedIds.size === 1 && typeof dsPathBackToHome === 'function') {
+    const selId = [...state.selectedIds][0];
+    if (deepSpaceUnitById(selId)) {
+      try {
+        const p = dsPathBackToHome(selId, state);
+        if (p && p.reached && p.reached !== 'none') { homePath = p; homeUnitId = selId; }
+      } catch (e) { /* mesh module absent/failed — no highlight */ }
+    }
+  }
+  const onPathLinks = new Set(homePath ? (homePath.linkIds || []) : []);
 
   // Draw links first so units render above them.
   for (const lk of state.deepSpaceLinks) {
     const a = deepSpaceUnitById(lk.fromId);
     const b = deepSpaceUnitById(lk.toId);
+    const def = DEEP_SPACE_LINK_TYPES[lk.type] || DEEP_SPACE_LINK_TYPES.ds_laser;
+    const selected = state.selectedIds.has(lk.id);
+    const onPath = onPathLinks.has(lk.id);
+    // Cross-domain handoff (unit → orbit asset): the far end lives in the
+    // Orbit view, so draw a labeled stub instead of silently skipping — these
+    // links are legal, validator-relevant, and part of path-to-home routes.
+    if ((a && !b) || (!a && b)) {
+      const unit = a || b;
+      const orbitEnd = spaceAssetById(a ? lk.toId : lk.fromId);
+      if (!orbitEnd) continue;
+      const pu = pos.get(unit.id) || { x: unit.x, y: unit.y };
+      const g = svgEl('g', { 'data-id': lk.id, 'data-kind': 'deeplink' });
+      const ex = pu.x + 74, ey = pu.y - 58;
+      g.appendChild(svgEl('line', {
+        class: 'ds-unitlink ds-handoff' + (selected ? ' selected' : '') + (onPath ? ' on-path' : ''),
+        x1: pu.x, y1: pu.y, x2: ex, y2: ey,
+        stroke: def.color, 'stroke-width': onPath ? def.width + 1 : def.width,
+        'stroke-dasharray': '3 5', 'marker-end': 'url(#arrow-end)',
+      }));
+      const t = svgEl('text', { class: 'ds-handoff-label', x: ex + 5, y: ey - 3 });
+      t.textContent = `⇡ orbit: ${orbitEnd.label || orbitEnd.type}`;
+      g.appendChild(t);
+      linkLayer.appendChild(g);
+      continue;
+    }
     if (!a || !b) continue;
     const pa = pos.get(a.id) || { x: a.x, y: a.y };
     const pb = pos.get(b.id) || { x: b.x, y: b.y };
-    const def = DEEP_SPACE_LINK_TYPES[lk.type] || DEEP_SPACE_LINK_TYPES.ds_laser;
-    const selected = state.selectedIds.has(lk.id);
     const g = svgEl('g', { 'data-id': lk.id, 'data-kind': 'deeplink' });
     g.appendChild(svgEl('line', {
       class: 'ds-unitlink-hit', x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y
     }));
     const attrs = {
-      class: 'ds-unitlink' + (selected ? ' selected' : ''),
+      class: 'ds-unitlink' + (selected ? ' selected' : '') + (onPath ? ' on-path' : ''),
       x1: pa.x, y1: pa.y, x2: pb.x, y2: pb.y,
-      stroke: def.color, 'stroke-width': def.width,
+      stroke: def.color, 'stroke-width': onPath ? def.width + 1 : def.width,
     };
     if (def.dash) attrs['stroke-dasharray'] = def.dash;
     g.appendChild(svgEl('line', attrs));
     linkLayer.appendChild(g);
+  }
+
+  // Route summary chip beside the selected unit.
+  if (homePath && homeUnitId) {
+    const p0 = pos.get(homeUnitId);
+    if (p0) {
+      const hops = Math.max(0, (homePath.hopNodes ? homePath.hopNodes.length : (homePath.hops || []).length) - 1);
+      const lt = (typeof dsFormatLightTime === 'function' && homePath.totalLatencySec != null)
+        ? dsFormatLightTime(homePath.totalLatencySec) : null;
+      const label = `⟶ home · ${hops} hop${hops === 1 ? '' : 's'}${lt ? ' · ' + lt + ' light-time' : ''}`;
+      const chipW = label.length * 6.4 + 18;
+      const chip = svgEl('g', { class: 'ds-home-chip', transform: `translate(${p0.x + 34} ${p0.y - 34})` });
+      chip.appendChild(svgEl('rect', { x: 0, y: -13, width: chipW, height: 20, rx: 10 }));
+      const t = svgEl('text', { x: 9, y: 1 });
+      t.textContent = label;
+      chip.appendChild(t);
+      linkLayer.appendChild(chip);
+    }
   }
 
   // Units
@@ -1985,9 +2315,20 @@ function renderPreviewLine(fromId, wx, wy) {
   clearOverlay();
   const from = state.viewMode === 'space' ? spaceAssetById(fromId)
     : state.viewMode === 'city' ? endpointById(fromId)
+    : state.viewMode === 'deepspace' ? deepSpaceUnitByIdSafe(fromId)
     : deviceById(fromId);
   if (!from) return;
-  const p = state.viewMode === 'space' ? spaceAssetPosition(from) : from;
+  // Anchored DS units render at their resolved (host planet + fan slot)
+  // position, not their stored free-float x/y — read the marker's actual
+  // rendered transform so the rubber band starts under the cursor.
+  let p = from;
+  if (state.viewMode === 'space') p = spaceAssetPosition(from);
+  else if (state.viewMode === 'deepspace') {
+    const el = document.querySelector(`.ds-unit[data-id="${fromId}"]`);
+    const m = el && /translate\(([-\d.]+)[ ,]([-\d.]+)\)/.exec(el.getAttribute('transform') || '');
+    if (m) p = { x: Number(m[1]), y: Number(m[2]) };
+    else p = resolveDeepUnitPosition(from, (state.comms && state.comms.epochMs) || Date.now());
+  }
   const line = svgEl('line', {
     class: 'preview-line', x1: p.x, y1: p.y, x2: wx, y2: wy
   });
@@ -2215,13 +2556,32 @@ function renderSpaceAssetProperties(a) {
       `</div>`;
   }
   html += `<div class="pr-field"><label>Angle on orbit (radians)</label><input data-key="angle" data-num="1" type="number" step="0.01" value="${(a.angle || 0).toFixed(3)}"/></div>`;
+  if (a.type !== 'ground_station') {
+    html += `<div class="pr-field pr-constellation"><label>Constellation ring</label>` +
+      `<div class="pr-inline">` +
+      `<input id="const-count" type="number" min="2" max="24" step="1" value="6" aria-label="Ring size"/>` +
+      `<button type="button" id="const-gen">Create ring</button>` +
+      `</div>` +
+      `<div class="pr-hint">Fills this orbit with evenly spaced copies (N total), chained with Laser ISLs.</div>` +
+      `</div>`;
+  }
   const p = a.props || {};
   for (const [k, v] of Object.entries(p)) {
     html += `<div class="pr-field"><label>${escapeHtml(k.charAt(0).toUpperCase() + k.slice(1))}</label>` +
       `<input data-key="${escapeHtml(k)}" data-prop="1" type="text" value="${escapeHtml(v)}"/></div>`;
   }
   dom.prBody.innerHTML = html;
-  dom.prBody.querySelectorAll('input, select').forEach(inp => {
+  const genBtn = dom.prBody.querySelector('#const-gen');
+  if (genBtn) {
+    genBtn.addEventListener('click', () => {
+      const n = Number(dom.prBody.querySelector('#const-count')?.value) || 6;
+      generateConstellationFromAsset(a, n);
+    });
+  }
+  // data-key ONLY: the ring-size input (#const-count) is UI state, not an
+  // asset property — the generic handler would write a junk "null" key onto
+  // the asset and its renderAll() would destroy #const-gen mid-click.
+  dom.prBody.querySelectorAll('input[data-key], select[data-key]').forEach(inp => {
     inp.addEventListener('change', () => {
       pushHistory();
       const key = inp.getAttribute('data-key');
@@ -2241,6 +2601,39 @@ function renderSpaceAssetProperties(a) {
       renderAll();
     });
   });
+}
+
+// Fill the seed asset's orbit with N evenly spaced satellites (the seed
+// counts as slot 1) and chain the whole ring with Laser ISLs.
+function generateConstellationFromAsset(seed, count) {
+  const n = clamp(Math.round(count) || 0, 2, 24);
+  pushHistory();
+  const created = [seed];
+  const baseLabel = (seed.label || 'Sat').replace(/\s+\d+$/, '');
+  for (let i = 1; i < n; i++) {
+    const copy = deepClone(seed);
+    copy.id = uid();
+    copy.angle = ((seed.angle || 0) + i * 2 * Math.PI / n) % (2 * Math.PI);
+    copy.label = `${baseLabel} ${i + 1}`;
+    state.spaceAssets.push(copy);
+    created.push(copy);
+  }
+  const existing = new Set(state.spaceLinks.map(l => pairKey(l.fromAssetId, l.toAssetId)));
+  let isls = 0;
+  for (let i = 0; i < created.length; i++) {
+    const a = created[i], b = created[(i + 1) % created.length];
+    if (a.id === b.id) continue;
+    const key = pairKey(a.id, b.id);
+    if (existing.has(key)) continue;
+    existing.add(key);
+    state.spaceLinks.push({ id: uid(), fromAssetId: a.id, toAssetId: b.id, type: 'laser_isl', label: '' });
+    isls++;
+  }
+  state.selectedIds = new Set(created.map(c => c.id));
+  renderAll();
+  if (typeof toast === 'function') {
+    toast(`Constellation ring: ${n - 1} satellite${n > 2 ? 's' : ''} added, ${isls} laser ISLs.`, { variant: 'success' });
+  }
 }
 
 function renderSpaceLinkProperties(sl) {
@@ -2400,7 +2793,7 @@ function renderCityProperties(c) {
       let value = inp.getAttribute('data-num') ? Number(inp.value) || 0 : inp.value;
       // Same sanitizer the save/load path uses — keeps javascript:/data:
       // and traversal strings out of city.imageUrl regardless of entry point.
-      if (key === 'imageUrl' && typeof value === 'string') value = cleanUrl(value);
+      if (key === 'imageUrl' && typeof value === 'string') value = cleanImageUrl(value);
       c[key] = value;
       syncTileMap();
       renderAll();
@@ -2490,6 +2883,19 @@ function renderSiteLinkProperties(sl) {
     `<input value="${escapeHtml(a ? a.name : '?')}" disabled/></div>`;
   html += `<div class="pr-field"><label>To</label>` +
     `<input value="${escapeHtml(b ? b.name : '?')}" disabled/></div>`;
+  // Computed path metrics (planet-metrics.js): great-circle span, an
+  // estimated fiber route (1.4× geodesic) and its one-way latency.
+  if (typeof planetSiteLinkMetrics === 'function') {
+    const m = planetSiteLinkMetrics(sl, state);
+    if (m) {
+      html += `<div class="pr-field-row">` +
+        `<div class="pr-field"><label>Great circle</label><input value="${Math.round(m.distanceKm).toLocaleString()} km" disabled/></div>` +
+        `<div class="pr-field"><label>Est. route</label><input value="${Math.round(m.routeKm).toLocaleString()} km" disabled/></div>` +
+        `</div>`;
+      html += `<div class="pr-field"><label>One-way latency (${escapeHtml(m.medium)})</label>` +
+        `<input value="~${m.latencyMs.toFixed(1)} ms · RTT ~${(m.latencyMs * 2).toFixed(0)} ms" disabled/></div>`;
+    }
+  }
 
   dom.prBody.innerHTML = html;
   dom.prBody.querySelectorAll('input, select').forEach(inp => {
@@ -3083,6 +3489,15 @@ dom.svg.addEventListener('mousemove', (e) => {
   mouseWorld = world;
   dom.sbCoords.textContent = `x: ${Math.round(world.x)}, y: ${Math.round(world.y)}`;
 
+  // The button was released while the cursor was outside the canvas (or the
+  // whole window) — no mouseup ever reached us, so end the stale drag rather
+  // than dragging with no button held.
+  if (drag && e.buttons === 0) {
+    drag = null;
+    dom.svg.classList.remove('panning');
+    clearOverlay();
+  }
+
   if (drag) {
     if (drag.kind === 'pan') {
       state.view.pan.x = drag.panStart.x + (e.clientX - drag.startX);
@@ -3204,7 +3619,7 @@ dom.svg.addEventListener('mouseup', (e) => {
     if (w >= 40 && h >= 40) {
       pushHistory();
       const id = uid();
-      state.zones.push({ id, type: drag.zoneType, x, y, w, h, label: '' });
+      state.zones.push({ id, type: drag.zoneType, x, y, w, h, label: '', siteId: state.activeSiteId });
       state.selectedIds.clear();
       state.selectedIds.add(id);
     }
@@ -3214,6 +3629,17 @@ dom.svg.addEventListener('mouseup', (e) => {
   }
   drag = null;
   dom.svg.classList.remove('panning');
+});
+
+// Releases over the palette / properties / toolbar never reach the svg's
+// mouseup handler; end the drag there too so it can't leak into the next
+// canvas mousemove.
+window.addEventListener('mouseup', (e) => {
+  if (!drag) return;
+  if (e.target instanceof Node && dom.svg.contains(e.target)) return; // svg handler owns it
+  drag = null;
+  dom.svg.classList.remove('panning');
+  clearOverlay();
 });
 
 dom.svg.addEventListener('wheel', (e) => {
@@ -3483,10 +3909,60 @@ function updateViewToggleButtons() {
   });
 }
 
+// setViewMode's viewport-swap half, for history restores: save the departing
+// mode's pan/zoom into its slot and adopt the restored mode's saved viewport.
+// Without this an undo across a mode boundary keeps the old mode's viewport
+// and then writes it into the wrong slot on the next real mode switch.
+function adoptViewportAfterRestore(prevMode) {
+  const mode = state.viewMode;
+  if (!prevMode || mode === prevMode) return;
+  if (prevMode === 'local')          _savedLocalView = { pan: { ...state.view.pan }, zoom: state.view.zoom };
+  else if (prevMode === 'world')     state.worldView = { pan: { ...state.view.pan }, zoom: state.view.zoom };
+  else if (prevMode === 'city')      state.cityView  = { pan: { ...state.view.pan }, zoom: state.view.zoom };
+  else if (prevMode === 'space')     state.spaceView = { pan: { ...state.view.pan }, zoom: state.view.zoom };
+  else if (prevMode === 'deepspace') state.deepView  = { pan: { ...state.view.pan }, zoom: state.view.zoom };
+  state.view =
+    mode === 'world'     ? { pan: { ...state.worldView.pan }, zoom: state.worldView.zoom } :
+    mode === 'city'      ? { pan: { ...state.cityView.pan  }, zoom: state.cityView.zoom  } :
+    mode === 'space'     ? { pan: { ...state.spaceView.pan }, zoom: state.spaceView.zoom } :
+    mode === 'deepspace' ? { pan: { ...state.deepView.pan  }, zoom: state.deepView.zoom  } :
+                           { pan: { ..._savedLocalView.pan }, zoom: _savedLocalView.zoom };
+}
+
+// Re-sync every piece of view chrome that setViewMode manages, from the
+// CURRENT state. Used after state.viewMode changes without going through
+// setViewMode (undo/redo snapshot restore, file load).
+function syncViewChromeToState() {
+  const mode = state.viewMode;
+  document.body.classList.toggle('world-mode',     mode === 'world');
+  document.body.classList.toggle('city-mode',      mode === 'city');
+  document.body.classList.toggle('space-mode',     mode === 'space');
+  document.body.classList.toggle('deepspace-mode', mode === 'deepspace');
+  dom.svg.classList.toggle('world-mode',     mode === 'world');
+  dom.svg.classList.toggle('city-mode',      mode === 'city');
+  dom.svg.classList.toggle('space-mode',     mode === 'space');
+  dom.svg.classList.toggle('deepspace-mode', mode === 'deepspace');
+  updateViewToggleButtons();
+  renderPalette();
+  syncTileMap();
+  updateWorldTransform();
+  if (mode === 'space') startOrbitAnimation();
+  else stopOrbitAnimation();
+}
+
 function cycleViewMode() {
   const order = ['local', 'city', 'world', 'space', 'deepspace'];
   const idx = order.indexOf(state.viewMode);
-  setViewMode(order[(idx + 1) % order.length]);
+  // Skip over progression-locked sections instead of stalling on the first
+  // locked one (setViewMode silently refuses locked targets).
+  for (let step = 1; step <= order.length; step++) {
+    const next = order[(idx + step) % order.length];
+    if (next === state.viewMode) return;
+    if (typeof progressionCanEnter !== 'function' || progressionCanEnter(next)) {
+      setViewMode(next);
+      return;
+    }
+  }
 }
 
 function fitSpace() {
@@ -3700,6 +4176,8 @@ function syncGoogleMarkers() {
       icon: gmapMarkerIconForType(ep.type, { selected: state.selectedIds.has(ep.id) }),
       draggable: true,
     });
+    // Snapshot BEFORE mutating so the move is undoable like SVG drags.
+    marker.addListener('dragstart', () => pushHistory());
     marker.addListener('dragend', () => {
       const pos = marker.getPosition();
       ep.lat = pos.lat(); ep.lng = pos.lng();
@@ -3879,6 +4357,8 @@ function syncLeafletMarkers() {
       .bindPopup(linkedSite
         ? `<b>${escapeHtml(linkedSite.name)}</b><br>Linked local site<br><small>Double-click marker to open local setup.</small>`
         : `<b>${escapeHtml(ep.label)}</b><br>${escapeHtml(def.label)}`);
+    // Snapshot BEFORE mutating so the move is undoable like SVG drags.
+    m.on('dragstart', () => pushHistory());
     m.on('dragend', (e) => {
       const ll = e.target.getLatLng();
       ep.lat = ll.lat; ep.lng = ll.lng;
@@ -3950,6 +4430,37 @@ function setLiveMap(on) {
   const btn = document.getElementById('live-toggle-btn');
   if (btn) btn.classList.toggle('live-on', on);
   try { localStorage.setItem(LIVE_MAP_KEY, on ? '1' : '0'); } catch (e) {}
+}
+
+// Per-layer refinement of the Live overlay (Planet view): city lights,
+// flight routes, satellites, day/night terminator. Master Live toggle wins;
+// these hide individual groups via #canvas.pl-hide-* CSS gates.
+const PLANET_LAYERS_KEY = 'greynet:planetlayers:v1';
+const PLANET_LAYER_DEFAULTS = { lights: true, flights: true, sats: true, terminator: true };
+function loadPlanetLayers() {
+  try {
+    const raw = localStorage.getItem(PLANET_LAYERS_KEY);
+    return Object.assign({}, PLANET_LAYER_DEFAULTS, raw ? JSON.parse(raw) : {});
+  } catch (e) { return { ...PLANET_LAYER_DEFAULTS }; }
+}
+function applyPlanetLayers(layers) {
+  for (const key of Object.keys(PLANET_LAYER_DEFAULTS)) {
+    dom.svg.classList.toggle('pl-hide-' + key, !layers[key]);
+    const chip = document.querySelector(`.pl-chip[data-planet-layer="${key}"]`);
+    if (chip) chip.setAttribute('aria-pressed', layers[key] ? 'true' : 'false');
+  }
+}
+function initPlanetLayerChips() {
+  let layers = loadPlanetLayers();
+  applyPlanetLayers(layers);
+  document.querySelectorAll('.pl-chip[data-planet-layer]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const key = chip.getAttribute('data-planet-layer');
+      layers[key] = !layers[key];
+      applyPlanetLayers(layers);
+      try { localStorage.setItem(PLANET_LAYERS_KEY, JSON.stringify(layers)); } catch (e) {}
+    });
+  });
 }
 
 function fitWorld() {
@@ -4309,8 +4820,11 @@ function deleteSelection() {
   // Planet-infra + deep-space deletes
   state.planetInfra    = (state.planetInfra    || []).filter(p => !ids.has(p.id));
   state.deepSpaceUnits = (state.deepSpaceUnits || []).filter(u => !ids.has(u.id));
+  // DS links may legally end on an orbit asset (cross-domain handoff), so an
+  // endpoint is live if it's a DS unit OR an orbit asset — not DS-unit-only.
+  const dsEndpointLive = (id) => !!(deepSpaceUnitByIdSafe(id) || spaceAssetById(id));
   state.deepSpaceLinks = (state.deepSpaceLinks || []).filter(l => !ids.has(l.id)
-    && deepSpaceUnitByIdSafe(l.fromId) && deepSpaceUnitByIdSafe(l.toId));
+    && dsEndpointLive(l.fromId) && dsEndpointLive(l.toId));
   if (state.activeSiteId && deletedSiteIds.has(state.activeSiteId)) {
     state.activeSiteId = state.sites[0] ? state.sites[0].id : null;
   }
@@ -4333,33 +4847,79 @@ function duplicateSelection() {
     const kind = typeOf(item);
     const copy = deepClone(item);
     copy.id = uid();
-    idMap[id] = copy.id;
-    newIds.add(copy.id);
+    // Only register ids for kinds we actually insert; anything else would
+    // leave ghost ids in the selection (properties panel shows "Selection
+    // lost", Delete no-ops).
     if (kind === 'device') { copy.x += 40; copy.y += 40; state.devices.push(copy); }
     else if (kind === 'zone') { copy.x += 30; copy.y += 30; state.zones.push(copy); }
-    else if (kind === 'link') { /* relink later */ }
-  }
-  // duplicate links between selected devices
-  for (const id of state.selectedIds) {
-    const link = linkById(id);
-    if (link && idMap[link.fromId] && idMap[link.toId]) {
-      const copy = deepClone(link);
-      copy.id = uid();
-      copy.fromId = idMap[link.fromId];
-      copy.toId = idMap[link.toId];
-      state.links.push(copy);
-      newIds.add(copy.id);
+    else if (kind === 'endpoint' && !item.siteId) {
+      // Plain city endpoints only — site markers are 1:1 with their site.
+      copy.x = (copy.x || 0) + 30; copy.y = (copy.y || 0) + 30;
+      if (copy.lat != null) copy.lat += 0.004;
+      if (copy.lng != null) copy.lng += 0.004;
+      state.endpoints.push(copy);
     }
+    else if (kind === 'spaceasset') { copy.angle = (copy.angle || 0) + 0.35; state.spaceAssets.push(copy); }
+    else if (kind === 'planetinfra') { copy.lat = clamp((copy.lat || 0) + 4, -85, 85); copy.lng = (copy.lng || 0) + 4; state.planetInfra.push(copy); }
+    else if (kind === 'deepunit') { copy.x = (copy.x || 0) + 40; copy.y = (copy.y || 0) + 40; state.deepSpaceUnits.push(copy); }
+    else continue; // links relink below; unsupported kinds are skipped
+    idMap[id] = copy.id;
+    newIds.add(copy.id);
   }
-  state.selectedIds = newIds;
+  // duplicate links whose two endpoints were both duplicated
+  const relink = (list, fromKey, toKey) => {
+    for (const id of state.selectedIds) {
+      const link = list.find(l => l.id === id);
+      if (link && idMap[link[fromKey]] && idMap[link[toKey]]) {
+        const copy = deepClone(link);
+        copy.id = uid();
+        copy[fromKey] = idMap[link[fromKey]];
+        copy[toKey] = idMap[link[toKey]];
+        list.push(copy);
+        newIds.add(copy.id);
+      }
+    }
+  };
+  relink(state.links, 'fromId', 'toId');
+  relink(state.cityLinks, 'fromEpId', 'toEpId');
+  relink(state.spaceLinks, 'fromAssetId', 'toAssetId');
+  relink(state.deepSpaceLinks || [], 'fromId', 'toId');
+  // Nothing was duplicable (e.g. a site) — keep the original selection
+  // rather than replacing it with an empty set.
+  if (newIds.size) state.selectedIds = newIds;
   renderAll();
+  syncLeafletMarkers();
 }
 
 function selectAll() {
   state.selectedIds.clear();
-  for (const d of state.devices) state.selectedIds.add(d.id);
-  for (const l of state.links) state.selectedIds.add(l.id);
-  for (const z of state.zones) state.selectedIds.add(z.id);
+  // Scope to what the current view actually shows — a global select-all
+  // would let Ctrl+A + Delete silently wipe items rendered nowhere.
+  if (state.viewMode === 'city') {
+    for (const ep of state.endpoints) if (ep.cityId === state.activeCityId) state.selectedIds.add(ep.id);
+    for (const cl of state.cityLinks) {
+      const f = endpointById(cl.fromEpId), t = endpointById(cl.toEpId);
+      if (f && t && f.cityId === state.activeCityId && t.cityId === state.activeCityId) state.selectedIds.add(cl.id);
+    }
+  } else if (state.viewMode === 'world') {
+    for (const s of state.sites) state.selectedIds.add(s.id);
+    for (const sl of state.siteLinks) state.selectedIds.add(sl.id);
+    for (const p of (state.planetInfra || [])) state.selectedIds.add(p.id);
+  } else if (state.viewMode === 'space') {
+    for (const a of state.spaceAssets) state.selectedIds.add(a.id);
+    for (const l of state.spaceLinks) state.selectedIds.add(l.id);
+  } else if (state.viewMode === 'deepspace') {
+    for (const u of (state.deepSpaceUnits || [])) state.selectedIds.add(u.id);
+    for (const l of (state.deepSpaceLinks || [])) state.selectedIds.add(l.id);
+  } else {
+    const inSite = (sid) => !state.activeSiteId || sid === state.activeSiteId;
+    for (const d of state.devices) if (inSite(d.siteId)) state.selectedIds.add(d.id);
+    for (const l of state.links) {
+      const f = deviceById(l.fromId), t = deviceById(l.toId);
+      if (f && t && inSite(f.siteId) && inSite(t.siteId)) state.selectedIds.add(l.id);
+    }
+    for (const z of state.zones) if (inSite(z.siteId)) state.selectedIds.add(z.id);
+  }
   renderAll();
 }
 
@@ -4694,6 +5254,21 @@ function cleanUrl(value) {
   }
 }
 
+// City backdrops uploaded via "Upload image…" are stored as data: URIs —
+// cleanUrl would truncate them at 2048 chars and then reject the protocol,
+// destroying the user's own upload on save/load. Accept raster data URIs
+// (no script surface in an <image href>) with a size cap; defer everything
+// else to cleanUrl.
+const MAX_IMAGE_DATA_URI = 6 * 1024 * 1024;
+function cleanImageUrl(value) {
+  const raw = String(value == null ? '' : value);
+  if (raw.startsWith('data:')) {
+    if (raw.length > MAX_IMAGE_DATA_URI) return '';
+    return /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(raw) ? raw : '';
+  }
+  return cleanUrl(value);
+}
+
 function cleanArray(value) {
   return Array.isArray(value) ? value.slice(0, MAX_IMPORT_ITEMS) : [];
 }
@@ -4771,7 +5346,7 @@ function sanitizeDiagram(obj) {
     mapW: clampNum(c.mapW, 100, 100000, 2000),
     mapH: clampNum(c.mapH, 100, 100000, 1400),
     mapBackend: cleanEnum(c.mapBackend, CITY_BACKENDS, 'image'),
-    imageUrl: cleanUrl(c.imageUrl),
+    imageUrl: cleanImageUrl(c.imageUrl),
     notes: cleanString(c.notes, MAX_PROP_STRING),
   }));
   const cityIds = new Set(cities.map(c => c.id));
@@ -4909,8 +5484,8 @@ function cleanComms(c) {
     targetId:        validTargets ? cleanEnum(c.targetId, validTargets, 'mars')         : cleanString(c.targetId, 64),
     customTargetKm:  clampNum(c.customTargetKm, 1000, 1e13, 225e6),
     txPowerW:        clampNum(c.txPowerW, 0.1, 1e5, 20000),
-    txGainDbi:       clampNum(c.txGainDbi, 0, 80, 47),
-    rxGainDbi:       clampNum(c.rxGainDbi, 0, 80, 73),
+    txGainDbi:       clampNum(c.txGainDbi, 0, 80, 73),  // matches state.js default (70m dish)
+    rxGainDbi:       clampNum(c.rxGainDbi, 0, 80, 47),  // matches state.js default (3m HGA)
     freqGHz:         clampNum(c.freqGHz, 0.1, 100, 8.4),
     dataBps:         clampNum(c.dataBps, 1, 1e9, 6_000_000),
     noiseTempK:      clampNum(c.noiseTempK, 20, 500, 21),
@@ -4970,16 +5545,10 @@ function loadFromJson(obj) {
   ensureDefaultSite();
   ensureDefaultCity(state.viewMode === 'city');
   state.selectedIds.clear();
-  document.body.classList.toggle('world-mode',     state.viewMode === 'world');
-  document.body.classList.toggle('city-mode',      state.viewMode === 'city');
-  document.body.classList.toggle('space-mode',     state.viewMode === 'space');
-  document.body.classList.toggle('deepspace-mode', state.viewMode === 'deepspace');
-  dom.svg.classList.toggle('world-mode',     state.viewMode === 'world');
-  dom.svg.classList.toggle('city-mode',      state.viewMode === 'city');
-  dom.svg.classList.toggle('space-mode',     state.viewMode === 'space');
-  dom.svg.classList.toggle('deepspace-mode', state.viewMode === 'deepspace');
-  syncTileMap();
-  updateWorldTransform();
+  // Full chrome sync: mode classes, toolbar view buttons, palette, tile map
+  // and orbit animation all follow the loaded viewMode (previously only the
+  // classes were toggled, leaving a stale toolbar and a frozen orbit view).
+  syncViewChromeToState();
   renderAll();
 }
 
@@ -5089,26 +5658,49 @@ function downloadBlob(blob, name) {
   setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 100);
 }
 
+// The diagram exporters must match what's on screen: only the ACTIVE site's
+// devices/zones/links (the canvas never draws other sites), with colors read
+// from the live theme rather than a hardcoded copy that drifts.
+function exportScope() {
+  const inSite = (sid) => !state.activeSiteId || sid === state.activeSiteId;
+  const devices = state.devices.filter(d => inSite(d.siteId));
+  const deviceIds = new Set(devices.map(d => d.id));
+  return {
+    devices,
+    zones: state.zones.filter(z => inSite(z.siteId)),
+    links: state.links.filter(l => deviceIds.has(l.fromId) && deviceIds.has(l.toId)),
+  };
+}
+
+function exportPalette() {
+  const cs = getComputedStyle(document.documentElement);
+  const live = (name, fallback) => (cs.getPropertyValue(name) || '').trim() || fallback;
+  return {
+    '--bg-0': live('--bg-0', '#0e1116'), '--bg-1': live('--bg-1', '#161b22'),
+    '--text': live('--text', '#d6dde6'),
+    '--text-dim': live('--text-dim', '#8a95a4'), '--text-faint': live('--text-faint', '#5a6471'),
+    '--border-2': live('--border-2', '#3a4452'), '--select': live('--select', '#ffd24a'),
+    '--link-eth': live('--link-eth', '#8a95a4'), '--link-fiber': live('--link-fiber', '#ff8c42'),
+    '--link-wifi': live('--link-wifi', '#5fb3ff'), '--link-vpn': live('--link-vpn', '#b388eb'),
+    '--link-trunk': live('--link-trunk', '#6fcf97'),
+  };
+}
+
 function exportSVG() {
   const bbox = computeBBox();
   if (!bbox) return alert('Nothing to export.');
+  const scope = exportScope();
   const pad = 40;
   const w = bbox.maxX - bbox.minX + pad * 2;
   const h = bbox.maxY - bbox.minY + pad * 2;
 
   // Build a standalone SVG. We inline computed colors (no CSS vars) for portability.
-  const colors = {
-    '--bg-0': '#0e1116', '--bg-1': '#161b22', '--text': '#d6dde6',
-    '--text-dim': '#8a95a4', '--text-faint': '#5a6471',
-    '--border-2': '#3a4452', '--select': '#ffd24a',
-    '--link-eth': '#8a95a4', '--link-fiber': '#ff8c42',
-    '--link-wifi': '#5fb3ff', '--link-vpn': '#b388eb', '--link-trunk': '#6fcf97',
-  };
+  const colors = exportPalette();
   const iconDefs = document.querySelector('svg defs').parentElement.innerHTML.match(/<defs>[\s\S]*?<\/defs>/)[0];
 
   let body = '';
   // zones
-  for (const z of state.zones) {
+  for (const z of scope.zones) {
     const d = ZONE_TYPES[z.type];
     body += `<rect x="${z.x - bbox.minX + pad}" y="${z.y - bbox.minY + pad}" width="${z.w}" height="${z.h}" rx="6"
       fill="${cssVarToHex(d.fill)}" stroke="${d.stroke}" stroke-width="2" stroke-dasharray="8 5"/>`;
@@ -5117,7 +5709,7 @@ function exportSVG() {
       font-family="-apple-system,sans-serif" letter-spacing="1">${escapeHtml((z.label || d.label).toUpperCase())}</text>`;
   }
   // links
-  for (const link of state.links) {
+  for (const link of scope.links) {
     const a = deviceById(link.fromId), b = deviceById(link.toId);
     if (!a || !b) continue;
     const def = LINK_TYPES[link.type];
@@ -5139,7 +5731,7 @@ function exportSVG() {
     }
   }
   // devices
-  for (const d of state.devices) {
+  for (const d of scope.devices) {
     const def = DEVICE_TYPES[d.type];
     const cx = d.x - bbox.minX + pad;
     const cy = d.y - bbox.minY + pad;
@@ -5168,10 +5760,12 @@ function exportSVG() {
 }
 
 function cssVarToHex(s) {
-  // already rgba — leave as-is; SVG accepts rgba
-  return s.replace('var(--z-internet)', '#ff6b6b').replace('var(--z-dmz)', '#f5c84c')
-          .replace('var(--z-internal)', '#6fcf97').replace('var(--z-mgmt)', '#5fb3ff')
-          .replace('var(--z-guest)', '#b388eb');
+  // Resolve any var(--x) against the live theme so exports track the app's
+  // actual palette; literal rgba()/hex values pass through untouched.
+  return String(s).replace(/var\((--[\w-]+)\)/g, (m, name) => {
+    const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return v || '#888888';
+  });
 }
 
 function exportPNG() {
@@ -5192,7 +5786,7 @@ function exportPNG() {
     const canvas = document.createElement('canvas');
     canvas.width = w * scale; canvas.height = h * scale;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#0e1116';
+    ctx.fillStyle = exportPalette()['--bg-0'];
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     canvas.toBlob((b) => {
@@ -5211,19 +5805,15 @@ function buildExportSvgElement() {
   // Same as exportSVG but returns an SVG element instead of writing a file
   const bbox = computeBBox();
   if (!bbox) return null;
+  const scope = exportScope();
   const pad = 40;
   const w = bbox.maxX - bbox.minX + pad * 2;
   const h = bbox.maxY - bbox.minY + pad * 2;
-  const colors = {
-    '--bg-0': '#0e1116', '--bg-1': '#161b22', '--text': '#d6dde6',
-    '--text-dim': '#8a95a4', '--border-2': '#3a4452',
-    '--link-eth': '#8a95a4', '--link-fiber': '#ff8c42',
-    '--link-wifi': '#5fb3ff', '--link-vpn': '#b388eb', '--link-trunk': '#6fcf97',
-  };
+  const colors = exportPalette();
   const defsHTML = document.querySelector('svg defs').parentElement.innerHTML.match(/<defs>[\s\S]*?<\/defs>/)[0];
 
   let body = `<rect width="100%" height="100%" fill="${colors['--bg-0']}"/>${defsHTML}`;
-  for (const z of state.zones) {
+  for (const z of scope.zones) {
     const d = ZONE_TYPES[z.type];
     body += `<rect x="${z.x - bbox.minX + pad}" y="${z.y - bbox.minY + pad}" width="${z.w}" height="${z.h}" rx="6"
       fill="${cssVarToHex(d.fill)}" stroke="${d.stroke}" stroke-width="2" stroke-dasharray="8 5"/>`;
@@ -5231,7 +5821,7 @@ function buildExportSvgElement() {
       fill="${d.labelColor}" font-size="13" font-weight="700"
       font-family="Arial,sans-serif" letter-spacing="1">${escapeHtml((z.label || d.label).toUpperCase())}</text>`;
   }
-  for (const link of state.links) {
+  for (const link of scope.links) {
     const a = deviceById(link.fromId), b = deviceById(link.toId);
     if (!a || !b) continue;
     const def = LINK_TYPES[link.type];
@@ -5253,7 +5843,7 @@ function buildExportSvgElement() {
         font-size="10" text-anchor="middle" font-family="Arial,sans-serif">${escapeHtml(link.label)}</text>`;
     }
   }
-  for (const d of state.devices) {
+  for (const d of scope.devices) {
     const def = DEVICE_TYPES[d.type];
     const cx = d.x - bbox.minX + pad;
     const cy = d.y - bbox.minY + pad;
@@ -5278,13 +5868,14 @@ function buildExportSvgElement() {
 }
 
 function computeBBox() {
-  if (state.devices.length === 0 && state.zones.length === 0) return null;
+  const scope = exportScope();
+  if (scope.devices.length === 0 && scope.zones.length === 0) return null;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  for (const d of state.devices) {
+  for (const d of scope.devices) {
     minX = Math.min(minX, d.x - 30); minY = Math.min(minY, d.y - 30);
     maxX = Math.max(maxX, d.x + 30); maxY = Math.max(maxY, d.y + 65);
   }
-  for (const z of state.zones) {
+  for (const z of scope.zones) {
     minX = Math.min(minX, z.x);     minY = Math.min(minY, z.y);
     maxX = Math.max(maxX, z.x+z.w); maxY = Math.max(maxY, z.y+z.h);
   }
@@ -5292,14 +5883,32 @@ function computeBBox() {
 }
 
 function newDiagram() {
-  if (state.devices.length || state.zones.length) {
+  const hasContent = state.devices.length || state.zones.length || state.links.length
+    || state.endpoints.length || state.cityLinks.length
+    || state.sites.length > 1 || state.siteLinks.length
+    || state.spaceAssets.length || state.spaceLinks.length
+    || (state.planetInfra || []).length
+    || (state.deepSpaceUnits || []).length || (state.deepSpaceLinks || []).length;
+  if (hasContent) {
     if (!confirm('Discard current diagram?')) return;
   }
   pushHistory();
+  // "New" means new across every layer — leaving cities/sites/orbit assets
+  // behind silently re-persists them on the next autosave.
   state.devices = []; state.links = []; state.zones = [];
+  state.sites = []; state.siteLinks = [];
+  state.cities = []; state.endpoints = []; state.cityLinks = [];
+  state.spaceAssets = []; state.spaceLinks = [];
+  state.planetInfra = [];
+  state.deepSpaceUnits = []; state.deepSpaceLinks = [];
+  state.activeSiteId = null;
+  state.activeCityId = null;
   state.selectedIds.clear();
+  ensureDefaultSite();
+  ensureDefaultCity(state.viewMode === 'city');
   resetView();
   renderAll();
+  syncLeafletMarkers();
 }
 
 /* =========================================================================
@@ -5480,11 +6089,18 @@ function connectCityEndpoints() {
     const hubs = eps.filter(ep => ['cabinet', 'fiberjunction', 'building'].includes(ep.type));
     const cabinets = eps.filter(ep => ep.type === 'cabinet');
     const fiber = eps.filter(ep => ep.type === 'fiberjunction');
+    // Map-backed (OSM/Google) endpoints carry real lat/lng but x/y of 0 —
+    // measuring those with the x/y metric returns distance 0 for every
+    // candidate and "nearest" degenerates to array order. Prefer lat/lng
+    // whenever both ends have it.
+    const epDist2 = (a, b) =>
+      (a.lat != null && a.lng != null && b.lat != null && b.lng != null)
+        ? latLngDist2(a, b) : dist2(a, b);
     for (const ep of eps) {
       if (ep.type === 'fiberjunction') continue;
       let target;
-      if (ep.type === 'cabinet') target = nearest(ep, fiber) || nearest(ep, eps.filter(x => x.id !== ep.id), latLngDist2);
-      else target = nearest(ep, cabinets) || nearest(ep, hubs) || nearest(ep, eps.filter(x => x.id !== ep.id), latLngDist2);
+      if (ep.type === 'cabinet') target = nearest(ep, fiber, epDist2) || nearest(ep, eps.filter(x => x.id !== ep.id), epDist2);
+      else target = nearest(ep, cabinets, epDist2) || nearest(ep, hubs, epDist2) || nearest(ep, eps.filter(x => x.id !== ep.id), epDist2);
       const type = ep.type === 'vehiclesensor' || ep.type === 'streetlight' ? 'copper'
         : ep.type === 'trafficcam' ? 'fiber_aerial'
         : ep.type === 'messagesign' ? 'cellular'
@@ -5812,8 +6428,6 @@ dom.toolbar.addEventListener('click', (e) => {
       dom.warningsTray.classList.remove('hidden', 'collapsed');
       break;
     case 'scan': showScanResults(); break;
-    case 'toggle-view': cycleViewMode(); break;
-    case 'cycle-view': cycleViewMode(); break;
     case 'toggle-live': setLiveMap(!state.liveMap); break;
     case 'settings': showSettings(); break;
     case 'ai': showAiAssistant(); break;
@@ -5838,8 +6452,17 @@ document.addEventListener('click', (e) => {
 // Export dropdown
 const exportMenu = document.getElementById('export-menu');
 function toggleExportMenu() {
-  if (exportMenu.hasAttribute('hidden')) exportMenu.removeAttribute('hidden');
-  else exportMenu.setAttribute('hidden', '');
+  if (exportMenu.hasAttribute('hidden')) {
+    // The menu is position: fixed (escapes the toolbar's overflow clip), so
+    // anchor it under the Export button at open time.
+    const btn = document.querySelector('[data-action="toggle-export"]');
+    if (btn) {
+      const r = btn.getBoundingClientRect();
+      exportMenu.style.left = Math.round(Math.min(r.left, window.innerWidth - 230)) + 'px';
+      exportMenu.style.top = Math.round(r.bottom + 6) + 'px';
+    }
+    exportMenu.removeAttribute('hidden');
+  } else exportMenu.setAttribute('hidden', '');
 }
 function closeExportMenu() { exportMenu.setAttribute('hidden', ''); }
 exportMenu.addEventListener('click', (e) => {
@@ -5855,7 +6478,7 @@ exportMenu.addEventListener('click', (e) => {
   }
 });
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.tb-dropdown')) closeExportMenu();
+  if (!e.target.closest('.tb-dropdown') && !e.target.closest('#export-menu')) closeExportMenu();
 });
 
 dom.prActions.addEventListener('click', (e) => {
@@ -6098,9 +6721,10 @@ function showAiAssistant() {
         </div>
         <div class="ai-status" style="display:block;background:#1e2733;border-color:#2d3a4a;color:#9fb0c3">
           <b>Heads up — this sends data online.</b> When you press Send, GreyNet shares your prompt plus a
-          <b>minimal summary</b> of the current diagram (site &amp; city <i>names</i>, the active IDs, and object
-          <i>counts</i>) with ${provider === 'anthropic' ? 'Anthropic' : 'OpenAI'}. Device IPs, MAC addresses,
-          addresses, and notes are <b>not</b> sent. Avoid this if your site names themselves are sensitive.
+          <b>minimal summary</b> of the current diagram (site, city &amp; object <i>names/labels</i>, the active
+          IDs, and object <i>counts</i>) with ${provider === 'anthropic' ? 'Anthropic' : 'OpenAI'}. Device IPs,
+          MAC addresses, addresses, and notes are <b>not</b> sent. Avoid this if your device or site names
+          themselves are sensitive.
         </div>
         <div id="ai-status" class="ai-status" style="display:none"></div>
       </div>
@@ -6215,6 +6839,17 @@ async function callAi(userPrompt) {
     counts: {
       devices: state.devices.length, links: state.links.length, zones: state.zones.length,
       sites: state.sites.length, endpoints: state.endpoints.length, spaceAssets: state.spaceAssets.length,
+    },
+    // Object LABELS (same sensitivity class as the site/city names above; no
+    // IPs/MACs/CIDRs/notes). Without them the model can't reference existing
+    // objects, so "connect X to Y" requests were always skipped as not-found.
+    labels: {
+      devices: state.devices.filter(d => !state.activeSiteId || d.siteId === state.activeSiteId)
+        .slice(0, 80).map(d => d.label),
+      endpoints: state.endpoints.filter(ep => ep.cityId === state.activeCityId)
+        .slice(0, 80).map(ep => ep.label),
+      spaceAssets: state.spaceAssets.slice(0, 80).map(a => a.label),
+      deepSpaceUnits: (state.deepSpaceUnits || []).slice(0, 80).map(u => u.label),
     },
   };
   const fullPrompt = `Current diagram context:\n${JSON.stringify(ctx, null, 2)}\n\nUser request:\n${userPrompt}\n\nRespond ONLY with the JSON object as described in your instructions.`;
@@ -7185,11 +7820,22 @@ function exportSpecs() {
   openOrDownloadHtml(html, `tech-specs-${Date.now()}.html`);
 }
 
+// A cost override only applies when it parses to a real number — a cleared
+// field ('') or junk like "1,500" must fall back to the catalog price, not
+// export $0 / NaN rows.
+function deviceCapex(d, cat) {
+  if (d.props && d.props.cost != null && String(d.props.cost).trim() !== '') {
+    const n = Number(String(d.props.cost).replace(/[,$\s]/g, ''));
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return cat.capex;
+}
+
 function exportExpense() {
   // Build line items, totals, and a summary HTML/CSV
   const lines = state.devices.map(d => {
     const cat = COST_CATALOG[d.type] || { capex:0, license:0, label: DEVICE_TYPES[d.type].label };
-    const capex = (d.props && d.props.cost != null) ? Number(d.props.cost) : cat.capex;
+    const capex = deviceCapex(d, cat);
     const license = cat.license;
     const opex = Math.round(capex * OPEX_RATE);
     return {
@@ -7228,7 +7874,7 @@ function exportExpense() {
   const siteCost = {};
   for (const d of state.devices) {
     const cat = COST_CATALOG[d.type] || { capex: 0, license: 0 };
-    const cap = (d.props && d.props.cost != null) ? Number(d.props.cost) : cat.capex;
+    const cap = deviceCapex(d, cat);
     const k = d.siteId || '__none__';
     if (!siteCost[k]) siteCost[k] = { capex: 0, license: 0, annualOpex: 0, threeYearTco: 0, count: 0 };
     const opex = Math.round(cap * OPEX_RATE);
@@ -7301,18 +7947,27 @@ function exportExpense() {
 }
 
 function openOrDownloadHtml(html, filename) {
-  const w = window.open('', '_blank');
-  if (w && !w.closed) {
-    try {
-      w.document.open();
-      w.document.write(html);
-      w.document.close();
-      w.focus();
-      return;
-    } catch (e) {}
+  // Desktop build: main.js's window-open handler denies every popup (hardened
+  // shell), so don't attempt one — download directly and tell the user.
+  const isElectron = typeof window.greynetSecure !== 'undefined';
+  if (!isElectron) {
+    const w = window.open('', '_blank');
+    if (w && !w.closed) {
+      try {
+        w.document.open();
+        w.document.write(html);
+        w.document.close();
+        w.focus();
+        return;
+      } catch (e) {}
+    }
   }
-  // Fallback if popup blocked
+  // Popup denied/blocked → save the file instead (and say so, rather than
+  // looking like the button did nothing).
   downloadBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), filename);
+  if (typeof toast === 'function') {
+    toast(`Saved ${filename} — open it in your browser.`, { variant: 'info', ttlMs: 5000 });
+  }
 }
 
 
@@ -7361,31 +8016,39 @@ const DS_SOURCES = {
 const DS_TARGETS = {
   mercury: { label: 'Mercury', kind: 'planet', color: '#a8a29e', radiusVis: 5,
              a: 0.38709927, e: 0.20563593, L0: 252.25032350, peri: 77.45779628,
-             rate: 149472.67411175 },
+             rate: 149472.67411175,
+             note: 'Innermost planet; Earth range swings ~0.5–1.4 AU with geometry.' },
   venus:   { label: 'Venus',   kind: 'planet', color: '#e6c478', radiusVis: 8,
              a: 0.72333566, e: 0.00677672, L0: 181.97909950, peri: 131.60246718,
-             rate: 58517.81538729 },
+             rate: 58517.81538729,
+             note: 'Closest planetary approach to Earth (~0.28 AU at inferior conjunction).' },
   earth:   { label: 'Earth',   kind: 'planet', color: '#5fb3ff', radiusVis: 8.5,
              a: 1.00000261, e: 0.01671123, L0: 100.46457166, peri: 102.93768193,
-             rate: 35999.37244981 },
+             rate: 35999.37244981,
+             note: 'Home — useful for modeling a downlink from a deep-space craft.' },
   moon:    { label: 'Moon',    kind: 'satellite', parent: 'earth',
              distKm: 384400, color: '#cbd5d8', radiusVis: 4,
              note: 'Mean Earth-Moon distance.' },
   mars:    { label: 'Mars',    kind: 'planet', color: '#d97644', radiusVis: 6.5,
              a: 1.52371034, e: 0.09339410, L0: -4.55343205,  peri: -23.94362959,
-             rate: 19140.30268499 },
+             rate: 19140.30268499,
+             note: 'Earth range ~0.5–2.5 AU; DSN↔Mars-orbiter is the classic deep-space link.' },
   jupiter: { label: 'Jupiter', kind: 'planet', color: '#d8a460', radiusVis: 18,
              a: 5.20288700, e: 0.04838624, L0: 34.39644051,  peri: 14.72847983,
-             rate: 3034.74612775 },
+             rate: 3034.74612775,
+             note: 'Gas giant at ~5.2 AU; ~35–50 min one-way light time from Earth.' },
   saturn:  { label: 'Saturn',  kind: 'planet', color: '#e9c97a', radiusVis: 15,
              a: 9.53667594, e: 0.05386179, L0: 49.95424423,  peri: 92.59887831,
-             rate: 1222.49362201 },
+             rate: 1222.49362201,
+             note: 'At ~9.5 AU; Cassini downlinked ~14–166 kbps via DSN 70m.' },
   uranus:  { label: 'Uranus',  kind: 'planet', color: '#9bd5d9', radiusVis: 10,
              a: 19.18916464,e: 0.04725744, L0: 313.23810451, peri: 170.95427630,
-             rate: 428.48202785 },
+             rate: 428.48202785,
+             note: 'Ice giant at ~19.2 AU; ~2.7 h one-way light time.' },
   neptune: { label: 'Neptune', kind: 'planet', color: '#5b7ddc', radiusVis: 10,
              a: 30.06992276,e: 0.00859048, L0: -55.12002969, peri: 44.96476227,
-             rate: 218.45945325 },
+             rate: 218.45945325,
+             note: 'Outermost planet at ~30 AU; Voyager 2 managed ~1 kbps from here.' },
   jwst:    { label: 'JWST (Sun-Earth L2)', kind: 'spacecraft', parent: 'earth',
              distKm: 1.5e6, color: '#ffd166', radiusVis: 3,
              note: 'JWST orbits Sun-Earth L2 at ~1.5 million km from Earth.' },
@@ -7534,6 +8197,24 @@ function dsDistanceKm(targetId, atMs) {
   return Math.sqrt(dxAU * dxAU + dyAU * dyAU) * DS_AU_KM;
 }
 
+// Sun–Earth–target separation angle (deg) — the angle at Earth between the
+// Sun and the target. Near superior conjunction this collapses toward 0 and
+// solar plasma/noise degrades or blacks out the link (DSN typically expects
+// outages under ~3° SEP). Planets only; spacecraft/custom targets carry no
+// ephemeris here, so return null (no claim).
+function dsSunSepDeg(targetId, atMs) {
+  const t = DS_TARGETS[targetId];
+  if (!t || t.kind !== 'planet' || targetId === 'earth') return null;
+  const earth = dsPlanetAU('earth', atMs);
+  const tgt   = dsPlanetAU(targetId, atMs);
+  const sunX = -earth.x, sunY = -earth.y;                 // Earth → Sun
+  const tgtX = tgt.x - earth.x, tgtY = tgt.y - earth.y;   // Earth → target
+  const dot = sunX * tgtX + sunY * tgtY;
+  const mags = Math.hypot(sunX, sunY) * Math.hypot(tgtX, tgtY);
+  if (!mags) return null;
+  return Math.acos(clamp(dot / mags, -1, 1)) * 180 / Math.PI;
+}
+
 // === Pure link-budget calculation ===
 function dsComputeLinkBudget(c, atMs) {
   const distKm  = Math.max(1, dsDistanceKm(c.targetId, atMs));
@@ -7553,6 +8234,11 @@ function dsComputeLinkBudget(c, atMs) {
   const snrLin  = Math.pow(10, (cn0 - 10 * Math.log10(bwHz)) / 10);
   const shannon = bwHz * Math.log2(1 + Math.max(0, snrLin));
 
+  // Solar conjunction: with the Sun near the Earth↔target line, plasma
+  // scintillation degrades or blacks out the link regardless of margin.
+  const sepDeg = dsSunSepDeg(c.targetId, atMs);
+  const conjunction = sepDeg != null && sepDeg < 3;
+
   // Limiting factor explanation
   let limiter = 'closed';
   if (margin < 0) {
@@ -7560,6 +8246,8 @@ function dsComputeLinkBudget(c, atMs) {
     else if (c.noiseTempK > 80) limiter = 'noise-floor limited — cool the LNA or use a colder receiver';
     else if (rBps > shannon * 1.2) limiter = 'bit-rate exceeds Shannon bound for this C/N — slow down';
     else limiter = 'gain-limited — add aperture or boost TX power';
+  } else if (conjunction) {
+    limiter = `solar conjunction — Sun only ${sepDeg.toFixed(1)}° off boresight; expect scintillation and command moratoria`;
   } else if (margin < 3) {
     limiter = 'marginal — add ≥3 dB of safety against rain/pointing fades';
   }
@@ -7573,6 +8261,7 @@ function dsComputeLinkBudget(c, atMs) {
     bitsPerSym: mod.bitsPerSym,
     bandName: dsBandFor(fGHz),
     limiter,
+    sepDeg, conjunction,
   };
 }
 
@@ -7661,7 +8350,9 @@ function renderDeepSpace() {
   const src = DS_SOURCES[state.comms.sourceId] || DS_SOURCES.dsn70;
   const hostPos = positions[src.host] || positions.earth || { x: 0, y: 0 };
   // Push the source marker outward a little so it's visible from the planet.
-  const srcOffset = 22;
+  // (Anchored units fan across the SUNWARD arc — see resolveDeepUnitPosition —
+  // so the anti-sunward radial slot here stays clear of them.)
+  const srcOffset = 30;
   const ang = Math.atan2(hostPos.y, hostPos.x) || 0;
   const sx = hostPos.x + Math.cos(ang) * srcOffset;
   const sy = hostPos.y + Math.sin(ang) * srcOffset;
@@ -7743,6 +8434,140 @@ function renderDeepSpace() {
   layer.setAttribute('aria-label', dsSceneAriaLabel(lb));
 }
 
+/* =========================================================================
+   DEEP SPACE LABEL DECLUTTER
+   Greedy, priority-ordered collision pass over every caption in the scene.
+   Screen-space boxes (getBoundingClientRect) make it zoom-aware. Obstacles
+   (sun, planet bodies, unit icons, source marker) claim space first; then
+   captions place by priority, each trying a couple of alternates before
+   degrading: unit sub-captions and ring captions hide, planet names flip
+   above their body, the link readout slides along the link path.
+   ========================================================================= */
+function dsDeclutterLabels() {
+  if (state.viewMode !== 'deepspace') return;
+  const svgRect = dom.svg.getBoundingClientRect();
+  if (!svgRect.width) return;
+  const pad = 3;
+  const placed = [];
+  const boxOf = (el) => {
+    const r = el.getBoundingClientRect();
+    return { l: r.left - pad, t: r.top - pad, r: r.right + pad, b: r.bottom + pad,
+             w: r.width, h: r.height };
+  };
+  const collides = (b) => placed.some(p => b.l < p.r && b.r > p.l && b.t < p.b && b.b > p.t);
+  const claim = (el) => { const b = boxOf(el); placed.push(b); return b; };
+
+  // --- Obstacles: markers the captions must not sit on ---
+  const layer = dom.deepspaceLayer, linkLayer = dom.deepspaceLinkLayer;
+  const unitsLayer = dom.deepSpaceUnitsLayer;
+  layer.querySelectorAll('.ds-sun, .ds-planet-body, .ds-source-ring').forEach(claim);
+  if (unitsLayer) unitsLayer.querySelectorAll('.du-bg').forEach(claim);
+
+  // --- 1. Unit captions (selected units first) ---
+  const unitGroups = unitsLayer ? [...unitsLayer.querySelectorAll('.ds-unit')] : [];
+  unitGroups.sort((a, b) =>
+    (b.classList.contains('selected') ? 1 : 0) - (a.classList.contains('selected') ? 1 : 0));
+  for (const g of unitGroups) {
+    const lbl = g.querySelector('.du-label');
+    const sub = g.querySelector('.du-type');
+    if (!lbl) continue;
+    if (collides(boxOf(lbl))) {
+      lbl.setAttribute('y', -32);            // flip above the icon
+      if (sub) sub.setAttribute('y', -44);
+    }
+    if (collides(boxOf(lbl))) {              // still boxed in — accept, hide sub
+      lbl.setAttribute('y', 38);
+      if (sub) { sub.setAttribute('y', 50); sub.style.display = 'none'; }
+    }
+    claim(lbl);
+    if (sub && sub.style.display !== 'none') {
+      if (collides(boxOf(sub))) sub.style.display = 'none';
+      else claim(sub);
+    }
+  }
+
+  // --- 2. Source (station) label: below the marker if the top is taken ---
+  const srcLabel = layer.querySelector('.ds-source-label');
+  if (srcLabel) {
+    if (collides(boxOf(srcLabel))) srcLabel.setAttribute('y', 20);
+    claim(srcLabel);
+  }
+
+  // --- 3. Planet names (+ target meta): flip above the body on collision ---
+  const planetGroups = [...layer.querySelectorAll('.ds-planet')];
+  planetGroups.sort((a, b) =>
+    (b.classList.contains('target') ? 1 : 0) - (a.classList.contains('target') ? 1 : 0));
+  for (const g of planetGroups) {
+    const nm = g.querySelector('.ds-planet-label');
+    const meta = g.querySelector('.ds-planet-meta');
+    if (!nm) continue;
+    const yBelow = Number(nm.getAttribute('y')) || 20;
+    if (collides(boxOf(nm))) {
+      // 2nd candidate: above the body
+      nm.setAttribute('y', -yBelow - 4);
+      if (meta) meta.setAttribute('y', -yBelow - 15);
+    }
+    if (collides(boxOf(nm))) {
+      // 3rd candidate: beside the body (right), meta tucked under it
+      nm.setAttribute('y', 4);
+      nm.setAttribute('x', yBelow + 2);
+      nm.setAttribute('text-anchor', 'start');
+      if (meta) { meta.setAttribute('y', 16); meta.setAttribute('x', yBelow + 2); meta.setAttribute('text-anchor', 'start'); }
+    }
+    claim(nm);
+    if (meta) {
+      if (collides(boxOf(meta))) meta.style.display = 'none';
+      else claim(meta);
+    }
+  }
+
+  // --- 4. Link readout: slide along the path to open space, plate behind ---
+  const main = document.getElementById('ds-readout-main');
+  const sub = document.getElementById('ds-readout-sub');
+  const path = document.getElementById('ds-link-path');
+  if (main && sub && path && typeof path.getTotalLength === 'function') {
+    const len = path.getTotalLength();
+    const zoom = state.view.zoom || 1;
+    const union = (a, b) => ({ l: Math.min(a.l, b.l), t: Math.min(a.t, b.t),
+                               r: Math.max(a.r, b.r), b: Math.max(a.b, b.b) });
+    const tryAt = (frac) => {
+      const p = path.getPointAtLength(len * frac);
+      // Lift the block off the line a bit (world units).
+      main.setAttribute('x', p.x); main.setAttribute('y', p.y - 14);
+      sub.setAttribute('x', p.x);  sub.setAttribute('y', p.y - 1);
+      return union(boxOf(main), boxOf(sub));
+    };
+    let box = null;
+    for (const frac of [0.5, 0.36, 0.64, 0.24, 0.76]) {
+      box = tryAt(frac);
+      if (!collides(box)) break;
+    }
+    placed.push(box);
+    // Glass plate under the block so ring lines/captions never bleed through.
+    let plate = document.getElementById('ds-readout-plate');
+    if (!plate) {
+      plate = svgEl('rect', { id: 'ds-readout-plate', class: 'ds-readout-plate', rx: 6 });
+      linkLayer.insertBefore(plate, main);
+    }
+    // Screen box → world coords (the readout lives in untransformed world space).
+    const toWorld = (sx, sy) => ({
+      x: (sx - svgRect.left - state.view.pan.x) / zoom,
+      y: (sy - svgRect.top - state.view.pan.y) / zoom,
+    });
+    const tl = toWorld(box.l, box.t), br = toWorld(box.r, box.b);
+    const mx = 8 / zoom, my = 4 / zoom; // margin so live text edits stay covered
+    plate.setAttribute('x', tl.x - mx); plate.setAttribute('y', tl.y - my);
+    plate.setAttribute('width', (br.x - tl.x) + mx * 2);
+    plate.setAttribute('height', (br.y - tl.y) + my * 2);
+  }
+
+  // --- 5. Ring captions: lowest priority — hide whatever still collides ---
+  layer.querySelectorAll('.ds-orbit-label').forEach(ol => {
+    if (collides(boxOf(ol))) ol.style.display = 'none';
+    else claim(ol);
+  });
+}
+
 function dsFormatDelay(s) {
   if (s < 1)   return (s * 1000).toFixed(1) + ' ms';
   if (s < 60)  return s.toFixed(2) + ' s';
@@ -7775,11 +8600,16 @@ function dsFormatWatts(w) {
 // Verdict (right-panel chip vocabulary) and canvas link-class vocabulary derived
 // from link margin. Single source of truth so chip + canvas + readout agree.
 function dsVerdict(lb) {
+  // A conjunction caps an otherwise-closed link at Marginal — the RF margin
+  // may be fine, but solar plasma makes the pass unreliable.
+  if (lb.conjunction && lb.margin >= 0) return { cls: 'warn', text: 'Marginal · conjunction' };
   return lb.margin >= 3 ? { cls: 'ok',   text: 'Link OK' }
        : lb.margin >= 0 ? { cls: 'warn', text: 'Marginal' }
        :                  { cls: 'err',  text: 'No link' };
 }
 function dsLinkClass(lb) {
+  // Mirror dsVerdict's conjunction cap so chip + canvas stay in agreement.
+  if (lb.conjunction && lb.margin >= 0) return 'marginal';
   return lb.margin >= 3 ? 'ok' : (lb.margin >= 0 ? 'marginal' : 'fail');
 }
 
@@ -7834,7 +8664,10 @@ function lbsWaterfallHtml(lb, c) {
   ];
   const maxAbs = Math.max(1, ...terms.map(t => Math.abs(t.db)));
   return terms.map(t => {
-    const widthPct = Math.min(100, 100 * Math.abs(t.db) / maxAbs);
+    // Each side of the center line is 50% of the track — scale to that, or
+    // every term over half the max clips at the track edge and renders as an
+    // identical full-length bar.
+    const widthPct = Math.min(50, 50 * Math.abs(t.db) / maxAbs);
     const sideStyle = t.db >= 0
       ? `left:50%;width:${widthPct}%`
       : `left:auto;right:50%;width:${widthPct}%`;
@@ -7854,6 +8687,14 @@ function updateLbsReadouts(lb) {
   const v = dsVerdict(lb);
   const chip = document.getElementById('lbs-verdict');
   if (chip) { chip.textContent = v.text; chip.className = 'lbs-verdict ' + v.cls; }
+  const conj = document.getElementById('lbs-conjunction');
+  if (conj) {
+    conj.hidden = !lb.conjunction;
+    if (lb.conjunction) {
+      conj.textContent = `☀ Solar conjunction — Sun–Earth–target angle ${lb.sepDeg.toFixed(1)}°. ` +
+        'Expect plasma scintillation, data-rate cuts, and command moratoria near this date.';
+    }
+  }
   const band = document.getElementById('lbs-band');
   if (band) band.textContent = lb.bandName;
   const ro = document.getElementById('lbs-readout');
@@ -7978,6 +8819,10 @@ function renderLinkBudgetStudio() {
     <div class="lbs-head">
       <span class="lbs-title"><b>${escapeHtml(sourceInfo.label || '')}</b> → <b>${escapeHtml(targetInfo.label || '')}</b></span>
       <span class="lbs-verdict ${verdict.cls}" id="lbs-verdict">${verdict.text}</span>
+    </div>
+    <div class="lbs-conjunction" id="lbs-conjunction" ${lb.conjunction ? '' : 'hidden'}>
+      ☀ Solar conjunction — Sun–Earth–target angle ${lb.sepDeg != null ? lb.sepDeg.toFixed(1) : '?'}°.
+      Expect plasma scintillation, data-rate cuts, and command moratoria near this date.
     </div>
     <div class="lbs-body">
 
@@ -8206,10 +9051,14 @@ function renderLinkBudgetStudio() {
   // the height:100% .lbs would fall below the fold). Only rebuilt on full
   // studio renders — slider drags no longer touch it.
   if (typeof renderDeepSpaceMeshPanel === 'function') {
-    const meshHost = document.createElement('div');
-    meshHost.className = 'lbs-section';
-    meshHost.innerHTML = '<h4>Deep Space Mesh</h4>';
+    // Collapsible so the mesh tables don't crowd the studio on small windows;
+    // open by default once the user has actually built a mesh.
+    const meshHost = document.createElement('details');
+    meshHost.className = 'lbs-section lbs-mesh';
+    if ((state.deepSpaceUnits || []).length) meshHost.setAttribute('open', '');
+    meshHost.innerHTML = '<summary><h4>Deep Space Mesh</h4></summary>';
     const mountPoint = document.createElement('div');
+    mountPoint.className = 'lbs-mesh-body';
     meshHost.appendChild(mountPoint);
     (dom_pr.querySelector('.lbs-body') || dom_pr).appendChild(meshHost);
     try { renderDeepSpaceMeshPanel(mountPoint, state); }
@@ -8280,6 +9129,8 @@ async function init() {
     const v = localStorage.getItem(LIVE_MAP_KEY);
     setLiveMap(v === null ? true : v === '1');
   } catch (e) { setLiveMap(true); }
+  initPlanetLayerChips();
+  initOrbitMotionToggle();
   document.body.classList.toggle('world-mode',     state.viewMode === 'world');
   document.body.classList.toggle('city-mode',      state.viewMode === 'city');
   document.body.classList.toggle('space-mode',     state.viewMode === 'space');

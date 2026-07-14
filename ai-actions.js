@@ -386,8 +386,13 @@
             break;
           }
           case 'addLink': {
-            const f = labelMap[a.fromId] || a.fromId;
-            const t = labelMap[a.toId] || a.toId;
+            // Label fallback searches only the ACTIVE site's devices — the AI
+            // context lists that site's labels, and a cross-site match would
+            // create an invisible degenerate link.
+            const inSite = (d) => !s.activeSiteId || d.siteId === s.activeSiteId;
+            const f = labelMap[a.fromId] || s.devices.find(d => inSite(d) && (d.id === a.fromId || d.label === a.fromId))?.id || a.fromId;
+            const t = labelMap[a.toId]   || s.devices.find(d => inSite(d) && (d.id === a.toId   || d.label === a.toId))?.id   || a.toId;
+            if (f === t) { skipped.push({ type: raw.type, reason: 'link endpoints are the same device' }); break; }
             const exists = s.devices.find(d => d.id === f) && s.devices.find(d => d.id === t);
             if (!exists) { skipped.push({ type: raw.type, reason: 'endpoint not found' }); break; }
             const dup = s.links.some(l => (l.fromId === f && l.toId === t) || (l.fromId === t && l.toId === f));
@@ -460,9 +465,14 @@
             break;
           }
           case 'addCityLink': {
-            const f = labelMap[a.fromLabel];
-            const t = labelMap[a.toLabel];
+            // Label fallback searches only the ACTIVE city's endpoints — a
+            // cross-city match would create an unrenderable ghost link that
+            // still counts toward city-layer validation.
+            const inCity = (x) => !s.activeCityId || x.cityId === s.activeCityId;
+            const f = labelMap[a.fromLabel] || s.endpoints.find(x => inCity(x) && x.label === a.fromLabel)?.id;
+            const t = labelMap[a.toLabel]   || s.endpoints.find(x => inCity(x) && x.label === a.toLabel)?.id;
             if (!f || !t) { skipped.push({ type: raw.type, reason: 'endpoint label not found' }); break; }
+            if (f === t)  { skipped.push({ type: raw.type, reason: 'link endpoints are the same endpoint' }); break; }
             const dup = s.cityLinks.some(l => (l.fromEpId === f && l.toEpId === t) || (l.fromEpId === t && l.toEpId === f));
             if (dup)      { skipped.push({ type: raw.type, reason: 'duplicate city link' }); break; }
             s.cityLinks.push({ id: ctx.uid(), fromEpId: f, toEpId: t, type: a.linkType, label: a.label, length: a.length });

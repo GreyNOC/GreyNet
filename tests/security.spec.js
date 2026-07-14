@@ -78,7 +78,7 @@ test.describe('E — import sanitization (fuzz)', () => {
     expect(r.linkType).toBe('ethernet');
   });
 
-  test('imageUrl rejects path traversal, javascript:, and data: URLs', async ({ page }) => {
+  test('imageUrl rejects traversal/javascript:/scriptable data:, keeps raster data: URIs', async ({ page }) => {
     await freshLoad(page);
     const r = await page.evaluate(() => {
       const mk = (imageUrl) => sanitizeDiagram({
@@ -92,7 +92,12 @@ test.describe('E — import sanitization (fuzz)', () => {
         absolute:    mk('/etc/passwd'),
         js:          mk('javascript:alert(1)'),
         dataHtml:    mk('data:text/html,<script>alert(1)</script>'),
+        // svg data URIs can carry script — must stay stripped
+        dataSvg:     mk('data:image/svg+xml,<svg onload="alert(1)"/>'),
+        // raster data URIs are what "Upload image…" itself writes; the
+        // sanitizer must round-trip them or the app destroys its own uploads
         dataImg:     mk('data:image/png;base64,AAAA'),
+        dataImgBad:  mk('data:image/png;base64,<script>'),
         httpsOk:     mk('https://example.com/map.png'),
         relOk:       mk('city-downtown.png'),
       };
@@ -103,7 +108,9 @@ test.describe('E — import sanitization (fuzz)', () => {
     expect(r.absolute).toBe('');
     expect(r.js).toBe('');
     expect(r.dataHtml).toBe('');
-    expect(r.dataImg).toBe('');          // data: not expected for imageUrl → stripped
+    expect(r.dataSvg).toBe('');
+    expect(r.dataImg).toBe('data:image/png;base64,AAAA');
+    expect(r.dataImgBad).toBe('');
     expect(r.httpsOk).toBe('https://example.com/map.png');
     expect(r.relOk).toBe('city-downtown.png');
   });

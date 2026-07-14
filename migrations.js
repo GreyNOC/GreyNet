@@ -55,8 +55,14 @@
       const validViews = new Set(['local','world','city','space','deepspace']);
       if (!validViews.has(d.viewMode)) d.viewMode = 'local';
 
-      // Repair missing progression.unlocked entries (e.g. very old saves)
-      if (d.progression && d.progression.unlocked) {
+      // Repair missing progression.unlocked entries (e.g. very old saves).
+      // Guard every level: a hand-edited file can set unlocked/completed to a
+      // string/number/null, and dereferencing those would crash the whole
+      // import — coerce to plain objects and let sanitizeDiagram do the rest.
+      if (d.progression && typeof d.progression === 'object') {
+        const obj = (v) => (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
+        d.progression.unlocked  = obj(d.progression.unlocked);
+        d.progression.completed = obj(d.progression.completed);
         for (const s of ['local','city','planet','orbit','deepspace']) {
           if (typeof d.progression.unlocked[s] !== 'boolean') {
             d.progression.unlocked[s] = (s === 'local');

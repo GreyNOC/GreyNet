@@ -50,27 +50,35 @@
     return '—';
   }
 
-  // Mostly mirrors spaceLinkMetrics() from app.js, but the calculation
-  // there lives inside a 7k-line file we don't want to import from. We
-  // recompute distance/latency/occlusion from the assets' current vectors.
+  // Fallback-only equatorial embedding. The REAL numbers come from app.js's
+  // spaceLinkMetrics (see _linkPhysics) so the validator can never disagree
+  // with the canvas labels; this runs only if app.js failed to load.
   function _vectorKm(a) {
     const types = _g('SPACE_ASSET_TYPES');
     const alts  = _g('ORBIT_ALTITUDES');
     if (!types || !alts) return null;
     const def = types[a.type] || types.satellite_leo;
     const orbitKey = a.type === 'ground_station' ? 'ground' : (a.orbit || def.orbit || 'leo');
-    if (orbitKey === 'ground') {
-      const ang = a.angle || Math.atan2(a.y || 0, a.x || 1);
-      return { x: 6371 * Math.cos(ang), y: 0, z: 6371 * Math.sin(ang), orbitKey };
-    }
-    const radiusKm = 6371 + (alts[orbitKey] || alts.leo).km;
-    const ang = a.angle || 0;
-    return {
-      x: radiusKm * Math.cos(ang), y: 0, z: radiusKm * Math.sin(ang), orbitKey,
-    };
+    // Same frame for ground and satellites (X right, Y up, rim/orbit plane
+    // z=0-ish) — mixing frames made uplink occlusion contradict the screen.
+    const ang = a.angle || (orbitKey === 'ground' ? Math.atan2(a.y || 0, a.x || 1) : 0);
+    const radiusKm = orbitKey === 'ground' ? 6371 : 6371 + (alts[orbitKey] || alts.leo).km;
+    return { x: radiusKm * Math.cos(ang), y: -radiusKm * Math.sin(ang), z: 0, orbitKey };
   }
 
   function _linkPhysics(a, b) {
+    // Single source of truth: delegate to app.js's spaceLinkMetrics — the
+    // same math that draws the canvas link labels. A reimplementation here
+    // (the old code) drifted: it ignored orbital inclination/RAAN and used a
+    // different ground-station frame, so the Properties panel could show
+    // "LOS: Clear" while this validator said "occulted" for the same link.
+    const shared = root.spaceLinkMetrics;
+    if (typeof shared === 'function') {
+      try {
+        const m = shared(a, b);
+        return { distanceKm: m.distanceKm, latencyMs: m.latencyMs, occluded: !!m.occulted };
+      } catch (_) { /* fall through to local model */ }
+    }
     const va = _vectorKm(a), vb = _vectorKm(b);
     if (!va || !vb) return { distanceKm: null, latencyMs: null, occluded: false };
     const dx = vb.x - va.x, dy = vb.y - va.y, dz = vb.z - va.z;

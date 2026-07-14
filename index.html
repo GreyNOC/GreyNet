@@ -525,14 +525,6 @@
       <button class="tb-btn" data-action="save" title="Save JSON (Ctrl+S)">Save</button>
       <div class="tb-dropdown">
         <button class="tb-btn" data-action="toggle-export" title="Export options">Export ▾</button>
-        <div class="tb-dropdown-menu" id="export-menu" hidden>
-          <button data-export="png"><span>Diagram</span><span class="ext">PNG</span></button>
-          <button data-export="svg"><span>Diagram</span><span class="ext">SVG</span></button>
-          <div class="dd-sep"></div>
-          <button data-export="report"><span>Security report</span><span class="ext">HTML</span></button>
-          <button data-export="specs"><span>Technical specs</span><span class="ext">HTML</span></button>
-          <button data-export="expense"><span>Cost estimate</span><span class="ext">CSV</span></button>
-        </div>
       </div>
     </div>
     <div class="tb-group">
@@ -572,6 +564,19 @@
       <button class="tb-btn" data-action="help" title="Show keyboard shortcuts">?</button>
     </div>
   </header>
+
+  <!-- Export dropdown lives OUTSIDE the toolbar: an ancestor with
+       backdrop-filter is the containing block for position:fixed, so inside
+       the toolbar the menu was trapped in (and clipped to) the 44px bar.
+       toggleExportMenu() anchors it under the Export button at open time. -->
+  <div class="tb-dropdown-menu" id="export-menu" hidden>
+    <button data-export="png"><span>Diagram</span><span class="ext">PNG</span></button>
+    <button data-export="svg"><span>Diagram</span><span class="ext">SVG</span></button>
+    <div class="dd-sep"></div>
+    <button data-export="report"><span>Security report</span><span class="ext">HTML</span></button>
+    <button data-export="specs"><span>Technical specs</span><span class="ext">HTML</span></button>
+    <button data-export="expense"><span>Cost estimate</span><span class="ext">CSV</span></button>
+  </div>
 
   <!-- === PALETTE === -->
   <aside class="palette" id="palette">
@@ -616,14 +621,26 @@
       <div id="empty-state-msg">Drag a device from the left palette to begin designing this site's network.</div>
       <div class="es-actions" id="empty-state-actions"></div>
     </div>
-    <!-- Orbit shell legend — shown only in space-mode (CSS-gated), decodes ring colors. -->
-    <div class="orbit-legend" id="orbit-legend" aria-hidden="true">
+    <!-- Orbit shell legend — shown only in space-mode (CSS-gated), decodes ring
+         colors. NOT aria-hidden: it contains the focusable Motion control. -->
+    <div class="orbit-legend" id="orbit-legend">
       <span class="ol-title">Orbit shells</span>
       <span><i style="background:#6fcf97"></i>LEO · low Earth</span>
       <span><i style="background:#85c3ff"></i>ISS</span>
       <span><i style="background:#f5c84c"></i>MEO · medium</span>
       <span><i style="background:#ff8c42"></i>GEO · geostationary</span>
       <span><i style="background:#b388eb"></i>Deep · cislunar+</span>
+      <button class="ol-motion" id="orbit-motion-btn" aria-pressed="false"
+        title="Animate satellites along their orbits at scaled real speeds (LEO ~70 s per revolution)">▶ Motion</button>
+    </div>
+    <!-- Planet layer chips — shown only in world-mode (CSS-gated). Master
+         Live toggle stays in the toolbar; these refine which live layers show. -->
+    <div class="planet-legend" id="planet-legend">
+      <span class="ol-title">Live layers</span>
+      <button class="pl-chip" data-planet-layer="lights"     aria-pressed="true">City lights</button>
+      <button class="pl-chip" data-planet-layer="flights"    aria-pressed="true">Flights</button>
+      <button class="pl-chip" data-planet-layer="sats"       aria-pressed="true">Satellites</button>
+      <button class="pl-chip" data-planet-layer="terminator" aria-pressed="true">Day/night</button>
     </div>
     <svg id="canvas" preserveAspectRatio="xMidYMid meet">
       <defs>
@@ -642,6 +659,12 @@
           <stop offset="0%"   stop-color="#0a1830"/>
           <stop offset="60%"  stop-color="#050d1f"/>
           <stop offset="100%" stop-color="#02060f"/>
+        </radialGradient>
+        <!-- Planet-view depth vignette: clear center, darkened corners -->
+        <radialGradient id="world-vignette-gradient" cx="50%" cy="50%" r="72%">
+          <stop offset="0%"   stop-color="rgba(0,0,0,0)"/>
+          <stop offset="74%"  stop-color="rgba(0,0,0,0)"/>
+          <stop offset="100%" stop-color="rgba(0,0,0,0.42)"/>
         </radialGradient>
         <!-- Continent body glow -->
         <filter id="continent-glow" x="-20%" y="-20%" width="140%" height="140%">
@@ -781,7 +804,11 @@
         </filter>
       </defs>
       <g id="world">
-        <rect id="grid-bg" x="-10000" y="-10000" width="20000" height="20000"
+        <!-- Sized to the visible viewport by updateGridBounds() (app.js) on every
+             pan/zoom. A fixed 20,000×20,000 sheet rasterized a 400-megapixel
+             pattern surface and stalled compositor readback (screenshots,
+             thumbnails, print) besides taxing every repaint. -->
+        <rect id="grid-bg" x="-2000" y="-2000" width="4000" height="4000"
           fill="url(#grid-pattern-major)"/>
         <g id="worldmap-layer"></g>
         <g id="live-layer"></g>
@@ -865,6 +892,7 @@
 <script src="ui-toast.js"       defer></script>
 <script src="deepspace-mesh.js" defer></script>
 <script src="orbit-metrics.js"  defer></script>
+<script src="planet-metrics.js" defer></script>
 <script src="ai-actions.js"     defer></script>
 <script src="app.js"            defer></script>
 </body>
